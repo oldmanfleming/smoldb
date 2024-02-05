@@ -1,0 +1,10 @@
+[package]
+name = "smoldb"
+version = "0.1.0"
+edition = "2021"
+authors = ["Evan Fleming"]
+license = "MIT"
+description = "A naive distributed sql database written in Rust entirely for learning purposes."
+repository = "https://github.com/oldmanfleming/smoldb"
+
+[dependencies]
