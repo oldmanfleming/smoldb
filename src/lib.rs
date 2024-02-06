@@ -3,4 +3,4 @@
 
 mod store;
 
-pub use store::KvStore;
+pub use store::{KvStore, KvsError, Result};
