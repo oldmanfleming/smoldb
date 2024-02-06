@@ -1,6 +1,6 @@
 #![deny(missing_docs)]
 //! A simple key/value store
 
-mod kv_store;
+mod store;
 
-pub use kv_store::KvStore;
+pub use store::KvStore;
