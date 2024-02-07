@@ -91,11 +91,10 @@ impl KvStore {
 
     fn load_store(&mut self, file: &std::fs::File) -> Result<()> {
         let reader = std::io::BufReader::new(file);
+        let mut stream = serde_json::Deserializer::from_reader(reader).into_iter::<Command>();
 
-        for line in reader.lines() {
-            let command: Command = serde_json::from_str(&line?)?;
-
-            match command {
+        while let Some(command) = stream.next() {
+            match command? {
                 Command::Set { key, value } => {
                     self.store.insert(key, value);
                 }
@@ -109,12 +108,8 @@ impl KvStore {
     }
 
     fn write_command(&mut self, file: std::fs::File, command: Command) -> Result<()> {
-        let serialized = serde_json::to_vec(&command)?;
-
         let mut writer = std::io::BufWriter::new(file);
-
-        writer.write_all(&serialized)?;
-        writer.write_all(b"\n")?;
+        serde_json::to_writer(&mut writer, &command)?;
         writer.flush()?;
 
         Ok(())
