@@ -1,3 +1,5 @@
+use std::string::FromUtf8Error;
+
 use thiserror::Error;
 
 /// The `KvsError` type for `KvStore`.
@@ -15,9 +17,13 @@ pub enum KvsError {
     #[error("Key not found")]
     KeyNotFound,
 
+    /// UTF-8 decoding error.
+    #[error("A UTF-8 decoding error occured: {0}")]
+    Utf8(#[from] FromUtf8Error),
+
     /// Data corruption error.
-    #[error("Data corruption error: {0}")]
-    DataCorruption(String),
+    #[error("A data corruption error was detected. Storec checksum: {0}, Calculated checksum:{1}")]
+    DataCorruption(u16, u16),
 }
 
 /// The `Result` type for `KvStore`.
