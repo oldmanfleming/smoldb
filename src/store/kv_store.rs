@@ -70,9 +70,9 @@ impl KvStore {
         Ok(store)
     }
 
-    /// Sets the value of a string key to a string.
+    /// Gets the string value of a given string key.
     ///
-    /// If the key already exists, the previous value will be overwritten.
+    /// Returns `None` if the given key does not exist.
     pub fn get(&mut self, key: String) -> Result<Option<String>> {
         if let Some(entry) = self.key_dir.get(&key).cloned() {
             if entry.value_len == 0 {
@@ -84,9 +84,9 @@ impl KvStore {
         Ok(None)
     }
 
-    /// Gets the string value of a given string key.
+    /// Sets the value of a string key to a string.
     ///
-    /// Returns `None` if the given key does not exist.
+    /// If the key already exists, the previous value will be overwritten.
     pub fn set(&mut self, key: String, value: String) -> Result<()> {
         let entry = self.write_entry(&key, &value)?;
         self.key_dir.insert(key, entry);
@@ -106,7 +106,8 @@ impl KvStore {
     }
 
     // Write a key/value pair to the given writer in the bitcask format.
-    // Fixed-width header Variable-length body
+    // An entry indicating the location of the value for the given key is returned.
+    // Fixed-width header            Variable-length body
     //+=====+=====+=====+====== - - +============== - - +
     //| u16 | u64 | u32 | u32       | [u8] | [u8] |
     //+=====+=====+=====+====== - - +============== - - +
@@ -144,8 +145,20 @@ impl KvStore {
         })
     }
 
+    // Read the next key/value entry from the given reader in the bitcask format.
+    // Fixed-width header            Variable-length body
+    //+=====+=====+=====+====== - - +============== - - +
+    //| u16 | u64 | u32 | u32       | [u8] | [u8] |
+    //+=====+=====+=====+====== - - +============== - - +
+    // checksum (2 bytes)
+    // timestamp (8 bytes)
+    // key_len (4 bytes)
+    // val_len (4 bytes)
+    // key (key_len bytes)
+    // value (val_len bytes)
     fn read_next_entry(&mut self) -> Result<Option<(String, Entry)>> {
-        // Check if we are at the end of the reader and move back to the current position after
+        // Check if we are at the end of the reader
+        // Move back to the current position after checking
         let current_pos = self.reader.seek(std::io::SeekFrom::Current(0))?;
         if current_pos == self.reader.seek(std::io::SeekFrom::End(0))? {
             return Ok(None);
