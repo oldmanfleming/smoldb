@@ -22,8 +22,12 @@ pub enum KvsError {
     Utf8(#[from] FromUtf8Error),
 
     /// Data corruption error.
-    #[error("A data corruption error was detected. Storec checksum: {0}, Calculated checksum:{1}")]
+    #[error("A data corruption error was detected. Stored checksum: {0}, Calculated checksum:{1}")]
     DataCorruption(u16, u16),
+
+    /// Unexpected error.
+    #[error("An unexpected error occurred: {0}")]
+    Unexpected(String),
 }
 
 /// The `Result` type for `KvStore`.

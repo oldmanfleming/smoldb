@@ -275,7 +275,9 @@ impl KvStore {
 
             Ok(Some(String::from_utf8(value_bytes)?))
         } else {
-            Ok(None)
+            Err(KvsError::Unexpected(
+                String::from("Reader for file id not found"),
+            ))
         }
     }
 }
