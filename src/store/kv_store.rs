@@ -12,7 +12,13 @@ const X25: crc::Crc<u16> = crc::Crc::<u16>::new(&crc::CRC_16_IBM_SDLC);
 
 const TOMBSTONE: &str = "";
 
-const LOG_FILE: &str = "log";
+const LOG_FILE_EXT: &str = "log";
+
+const MERGE_FILE: &str = "merge.log";
+
+const MERGE_FILE_ID: u64 = 0;
+
+const HINT_FILE: &str = "hint.log";
 
 const LOG_SIZE_THRESHOLD: u64 = 1024 * 1024;
 
@@ -58,7 +64,7 @@ impl KvStore {
         // find all log files in the directory and sort them by file id
         let mut file_ids: Vec<u64> = fs::read_dir(&path)?
             .flat_map(|res| -> Result<_> { Ok(res?.path()) })
-            .filter(|path| path.is_file() && path.extension() == Some(LOG_FILE.as_ref()))
+            .filter(|path| path.is_file() && path.extension() == Some(LOG_FILE_EXT.as_ref()))
             .map(|path| {
                 path.file_stem()
                     .and_then(|file_id| file_id.to_str())
@@ -68,13 +74,13 @@ impl KvStore {
             .collect();
         file_ids.sort_unstable();
 
-        // get the last file id or 0 if there are no files
+        // get the last file id or 1 if there are no files
         // the last file is the current file that we write too
         let active_file_id = match file_ids.last() {
             Some(&id) => id,
             None => {
-                file_ids.push(0);
-                0
+                file_ids.push(1);
+                1
             }
         };
         let writer = BufWriter::new(
@@ -87,13 +93,31 @@ impl KvStore {
         let mut readers = HashMap::new();
         let mut key_dir = HashMap::new();
 
-        // TODO:
         // open a reader for the hint file if it exists
-        // open a reader for the merge file if it exists
-        // add merge file reader to readers ?with what index?
-        // read through hint file and update key_dir
+        // read through hint file and load the key_dir with it's entries
+        // open a reader for the merge file
+        // add merge file reader to readers with merge file id
+        if path.join(HINT_FILE).exists() {
+            let mut reader = BufReader::new(
+                fs::OpenOptions::new()
+                    .read(true)
+                    .open(path.join(HINT_FILE))?,
+            );
 
-        // open a reader for each file and load the key_dir with it's entries
+            while let Some((key, entry)) = read_next_hint(&mut reader)? {
+                key_dir.insert(key, entry);
+            }
+
+            let merge_reader = BufReader::new(
+                fs::OpenOptions::new()
+                    .read(true)
+                    .open(path.join(MERGE_FILE))?,
+            );
+
+            readers.insert(MERGE_FILE_ID, merge_reader);
+        }
+
+        // open a reader for each log file and load the key_dir with it's entries
         for file_id in file_ids {
             let mut reader = BufReader::new(
                 fs::OpenOptions::new()
@@ -141,7 +165,7 @@ impl KvStore {
     ///
     /// If the key already exists, the previous value will be overwritten.
     pub fn set(&mut self, key: String, value: String) -> Result<()> {
-        let entry = write_entry(&mut self.writer, self.active_file_id, &key, &value)?;
+        let entry = write_value(&mut self.writer, self.active_file_id, &key, &value)?;
 
         // If the size of the active file is greater than the threshold we will create a new active file
         //
@@ -174,7 +198,7 @@ impl KvStore {
         if self.key_dir.get(&key).is_none() {
             return Err(KvsError::KeyNotFound);
         }
-        let entry = write_entry(
+        let entry = write_value(
             &mut self.writer,
             self.active_file_id,
             &key,
@@ -186,16 +210,91 @@ impl KvStore {
 
     /// Merge the log files in the directory into merge and hint files.
     pub fn merge(&mut self) -> Result<()> {
-        // TODO:
-        // 1. Create a temp merge file
-        // 2. Create a temp hint file
-        // 3. iterate over key_dir and read the value for each entry
-        // 4. write the key and value to the merge file
-        // 5. write the key, file_id, and value size/pos to the hint file
-        // 6. remove all log files
-        // 7. remove pre-existing merge and hint files
-        // 7. rename the temp merge and hint files
-        todo!()
+        // 1. Create temp merge/hint files
+        // 2. Iterate over key_dir and read the value for each entry
+        // 3. Write the key and value to the merge file
+        // 4. Write the key and value info to the hint file
+        // 5. Remove all log files
+        // 6. Remove pre-existing merge and hint files
+        // 7. Rename the temp merge and hint files
+        // 8. Update writer/readers/active_file_id
+
+        let temp_merge_file = self.path.join(format!("{}.tmp", MERGE_FILE));
+        let temp_hint_file = self.path.join(format!("{}.tmp", HINT_FILE));
+
+        let mut merge_writer = BufWriter::new(
+            fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&temp_merge_file)?,
+        );
+
+        let mut hint_writer = BufWriter::new(
+            fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&temp_hint_file)?,
+        );
+
+        for (key, entry) in &self.key_dir {
+            if entry.value_len == 0 {
+                continue;
+            }
+
+            let reader = self
+                .readers
+                .get_mut(&entry.file_id)
+                .ok_or(KvsError::Unexpected(
+                    "No reader found for entry file id".to_string(),
+                ))?;
+            let value = read_value(reader, entry)?;
+
+            let merge_entry = write_value(&mut merge_writer, MERGE_FILE_ID, &key, &value)?;
+
+            write_hint(&mut hint_writer, &key, &merge_entry)?;
+        }
+        merge_writer.flush()?;
+        hint_writer.flush()?;
+
+        for file_id in self.readers.keys() {
+            if *file_id == MERGE_FILE_ID {
+                continue;
+            }
+            fs::remove_file(log_path(&self.path, *file_id))?;
+        }
+
+        if self.path.join(MERGE_FILE).exists() {
+            fs::remove_file(self.path.join(MERGE_FILE))?;
+        }
+        if self.path.join(HINT_FILE).exists() {
+            fs::remove_file(self.path.join(HINT_FILE))?;
+        }
+
+        fs::rename(temp_merge_file, self.path.join(MERGE_FILE))?;
+        fs::rename(temp_hint_file, self.path.join(HINT_FILE))?;
+
+        self.active_file_id = MERGE_FILE_ID + 1;
+        self.writer = BufWriter::new(
+            fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(log_path(&self.path, self.active_file_id))?,
+        );
+        self.readers = HashMap::new();
+        self.readers.insert(
+            MERGE_FILE_ID,
+            BufReader::new(
+                fs::OpenOptions::new()
+                    .read(true)
+                    .open(self.path.join(MERGE_FILE))?,
+            ),
+        );
+        self.readers.insert(
+            self.active_file_id,
+            BufReader::new(fs::File::open(log_path(&self.path, self.active_file_id))?),
+        );
+
+        Ok(())
     }
 }
 
@@ -215,7 +314,7 @@ fn log_path(path: &Path, gen: u64) -> PathBuf {
 // val_len (4 bytes)
 // key (key_len bytes)
 // value (val_len bytes)
-fn write_entry<W: Write + Seek>(
+fn write_value<W: Write + Seek>(
     writer: &mut W,
     file_id: u64,
     key: &String,
@@ -248,7 +347,7 @@ fn write_entry<W: Write + Seek>(
     })
 }
 
-// Read the next key/value entry from the given reader in the bitcask format.
+// Read the next key/value entry from the given reader in the bitcask data format.
 // Fixed-width header            Variable-length body
 //+=====+=====+=====+====== - - +============== - - +
 //| u16 | u64 | u32 | u32       | [u8] | [u8] |
@@ -310,6 +409,7 @@ fn read_next_entry<R: Read + Seek>(
     Ok(Some((key, entry)))
 }
 
+// Read the value for the given entry from the given reader.
 fn read_value<R: Read + Seek>(reader: &mut R, entry: &Entry) -> Result<String> {
     reader.seek(std::io::SeekFrom::Start(entry.value_pos))?;
 
@@ -317,6 +417,63 @@ fn read_value<R: Read + Seek>(reader: &mut R, entry: &Entry) -> Result<String> {
     reader.read_exact(&mut value_bytes)?;
 
     Ok(String::from_utf8(value_bytes)?)
+}
+
+// Write a given key/value entry to the writer in the bitcask hint format.
+// Fixed-width header            Variable-length body
+//+=====+=====+=====+====== - - +======== - - +
+//| u64 | u32 | u32 | u64       | [u8] |
+//+=====+=====+=====+====== - - +======== - - +
+// timestamp (8 bytes)
+// key_len (4 bytes)
+// val_len (4 bytes)
+// val_pos (8 bytes)
+// key (key_len bytes)
+fn write_hint<W: Write + Seek>(writer: &mut W, key: &String, entry: &Entry) -> Result<()> {
+    writer.write_u64::<BigEndian>(entry._timestamp)?;
+    writer.write_u32::<BigEndian>(key.len() as u32)?;
+    writer.write_u32::<BigEndian>(entry.value_len)?;
+    writer.write_u64::<BigEndian>(entry.value_pos)?;
+    writer.write_all(key.as_bytes())?;
+    Ok(())
+}
+
+// Read the next key/value entry from the given reader in the bitcask hint format.
+// Fixed-width header            Variable-length body
+//+=====+=====+=====+====== - - +======== - - +
+//| u64 | u32 | u32 | u64       | [u8] |
+//+=====+=====+=====+====== - - +======== - - +
+// timestamp (8 bytes)
+// key_len (4 bytes)
+// val_len (4 bytes)
+// val_pos (8 bytes)
+// key (key_len bytes)
+fn read_next_hint<R: Read + Seek>(reader: &mut R) -> Result<Option<(String, Entry)>> {
+    // Check if we are at the end of the reader
+    // Move back to the current position after checking
+    let current_pos = reader.seek(std::io::SeekFrom::Current(0))?;
+    if current_pos == reader.seek(std::io::SeekFrom::End(0))? {
+        return Ok(None);
+    }
+    reader.seek(std::io::SeekFrom::Start(current_pos))?;
+
+    let timestamp = reader.read_u64::<BigEndian>()?;
+    let key_len = reader.read_u32::<BigEndian>()?;
+    let value_len = reader.read_u32::<BigEndian>()?;
+    let value_pos = reader.read_u64::<BigEndian>()?;
+
+    let mut key_bytes = vec![0; key_len as usize];
+    reader.read_exact(&mut key_bytes)?;
+    let key = String::from_utf8(key_bytes)?;
+
+    let entry = Entry {
+        file_id: MERGE_FILE_ID,
+        value_len,
+        value_pos,
+        _timestamp: timestamp,
+    };
+
+    Ok(Some((key, entry)))
 }
 
 #[cfg(test)]
@@ -424,8 +581,8 @@ mod tests {
         };
 
         let initial_size = dir_size();
-        for iter in 0..1000 {
-            for key_id in 0..1000 {
+        for iter in 0..=1000 {
+            for key_id in 0..=1000 {
                 let key = format!("key{}", key_id);
                 let value = format!("{}", iter);
                 store.set(key, value).unwrap();
@@ -449,12 +606,10 @@ mod tests {
         // test that store can read from the merged log
         drop(store);
 
-        for iter in 0..1000 {
-            let mut store = KvStore::open(temp_dir.path())?;
-            for key_id in 0..1000 {
-                let key = format!("key{}", key_id);
-                assert_eq!(store.get(key)?, Some(format!("{}", iter)));
-            }
+        let mut store = KvStore::open(temp_dir.path())?;
+        for key_id in 0..=1000 {
+            let key = format!("key{}", key_id);
+            assert_eq!(store.get(key)?, Some(format!("{}", 1000)));
         }
 
         Ok(())

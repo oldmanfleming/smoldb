@@ -16,6 +16,8 @@ enum Command {
     Set(SetCommand),
     #[command(name = "rm", about = "Remove a given key")]
     Remove(RemoveCommand),
+    #[command(name = "merge", about = "Compact log files and remove stale data")]
+    Merge,
 }
 
 #[derive(Args, Debug)]
@@ -62,5 +64,8 @@ fn main() -> Result<()> {
             }
             Err(err) => Err(err)?,
         },
+        Command::Merge => {
+            store.merge()?;
+        }
     })
 }
