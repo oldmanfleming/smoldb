@@ -1,17 +1,17 @@
 use assert_cmd::prelude::*;
 use predicates::ord::eq;
 use predicates::str::{contains, is_empty, PredicateStrExt};
-use smoldb::{KvStore, Result};
+use smoldb::{Result, Storage};
 use std::process::Command;
 use tempfile::TempDir;
 
-// `kvs` with no args should exit with a non-zero code.
+// `smoldb` with no args should exit with a non-zero code.
 #[test]
 fn cli_no_args() {
     Command::cargo_bin("smoldb").unwrap().assert().failure();
 }
 
-// `kvs -V` should print the version
+// `smoldb -V` should print the version
 #[test]
 fn cli_version() {
     Command::cargo_bin("smoldb")
@@ -21,7 +21,7 @@ fn cli_version() {
         .stdout(contains(env!("CARGO_PKG_VERSION")));
 }
 
-// `kvs get <KEY>` should print "Key not found" for a non-existent key and exit with zero.
+// `smoldb get <KEY>` should print "Key not found" for a non-existent key and exit with zero.
 #[test]
 fn cli_get_non_existent_key() {
     let temp_dir = TempDir::new().unwrap();
@@ -34,7 +34,7 @@ fn cli_get_non_existent_key() {
         .stdout(eq("Key not found").trim());
 }
 
-// `kvs rm <KEY>` should print "Key not found" for an empty database and exit with non-zero code.
+// `smoldb rm <KEY>` should print "Key not found" for an empty database and exit with non-zero code.
 #[test]
 fn cli_rm_non_existent_key() {
     let temp_dir = TempDir::new().expect("unable to create temporary working directory");
@@ -47,7 +47,7 @@ fn cli_rm_non_existent_key() {
         .stdout(eq("Key not found").trim());
 }
 
-// `kvs set <KEY> <VALUE>` should print nothing and exit with zero.
+// `smoldb set <KEY> <VALUE>` should print nothing and exit with zero.
 #[test]
 fn cli_set() {
     let temp_dir = TempDir::new().expect("unable to create temporary working directory");
@@ -64,7 +64,7 @@ fn cli_set() {
 fn cli_get_stored() -> Result<()> {
     let temp_dir = TempDir::new().expect("unable to create temporary working directory");
 
-    let mut store = KvStore::open(temp_dir.path())?;
+    let mut store = Storage::open(temp_dir.path())?;
     store.set("key1".to_owned(), "value1".to_owned())?;
     store.set("key2".to_owned(), "value2".to_owned())?;
     drop(store);
@@ -88,12 +88,12 @@ fn cli_get_stored() -> Result<()> {
     Ok(())
 }
 
-// `kvs rm <KEY>` should print nothing and exit with zero.
+// `smoldb rm <KEY>` should print nothing and exit with zero.
 #[test]
 fn cli_rm_stored() -> Result<()> {
     let temp_dir = TempDir::new().expect("unable to create temporary working directory");
 
-    let mut store = KvStore::open(temp_dir.path())?;
+    let mut store = Storage::open(temp_dir.path())?;
     store.set("key1".to_owned(), "value1".to_owned())?;
     drop(store);
 

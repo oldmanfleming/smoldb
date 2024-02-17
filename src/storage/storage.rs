@@ -1,4 +1,4 @@
-use crate::{KvsError, Result};
+use crate::{Result, StorageError};
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use std::{
     collections::HashMap,
@@ -22,7 +22,7 @@ const HINT_FILE: &str = "hint.log";
 
 const LOG_SIZE_THRESHOLD: u64 = 1024 * 1024;
 
-/// The `KvStore` stores string key/value pairs.
+/// `Storage` stores string key/value pairs durably conforming to the Bitcask API.
 ///
 /// Key/value pairs are stored on disk using the Bitcask append-only log format.
 ///
@@ -31,13 +31,13 @@ const LOG_SIZE_THRESHOLD: u64 = 1024 * 1024;
 /// Example:
 ///
 /// ```rust
-/// # use smoldb::{KvStore, KvsError, Result};
-/// let mut store = KvStore::open(std::env::current_dir().unwrap()).unwrap();
-/// store.set("key".to_owned(), "value".to_owned()).unwrap();
-/// let val = store.get("key".to_owned()).unwrap();
+/// # use smoldb::{Storage, StorageError, Result};
+/// let mut storage = Storage::open(std::env::current_dir().unwrap()).unwrap();
+/// storage.set("key".to_owned(), "value".to_owned()).unwrap();
+/// let val = storage.get("key".to_owned()).unwrap();
 /// assert_eq!(val, Some("value".to_owned()));
 /// ```
-pub struct KvStore {
+pub struct Storage {
     key_dir: HashMap<String, Entry>,
     path: PathBuf,
     writer: BufWriter<File>,
@@ -45,19 +45,11 @@ pub struct KvStore {
     active_file_id: u64,
 }
 
-#[derive(Debug, Clone)]
-struct Entry {
-    file_id: u64,
-    value_len: u32,
-    value_pos: u64,
-    _timestamp: u64,
-}
-
-impl KvStore {
-    /// Opens a `KvStore` at a given path.
+impl Storage {
+    /// Opens `Storage` at a given path.
     ///
     /// If the path does not exist, it will be created.
-    pub fn open(path: impl Into<PathBuf>) -> Result<KvStore> {
+    pub fn open(path: impl Into<PathBuf>) -> Result<Storage> {
         let path: PathBuf = path.into();
         fs::create_dir_all(&path)?;
 
@@ -132,7 +124,7 @@ impl KvStore {
             readers.insert(file_id, reader);
         }
 
-        Ok(KvStore {
+        Ok(Storage {
             key_dir,
             path,
             writer,
@@ -154,7 +146,7 @@ impl KvStore {
                 return Ok(Some(read_value(reader, &entry)?));
             }
 
-            return Err(KvsError::Unexpected(
+            return Err(StorageError::Unexpected(
                 "No reader found for entry file id".to_string(),
             ));
         }
@@ -193,10 +185,10 @@ impl KvStore {
 
     /// Remove a given key.
     ///
-    /// Returns `KvsError::KeyNotFound` if the key does not exist.
+    /// Returns `StorageError::KeyNotFound` if the key does not exist.
     pub fn remove(&mut self, key: String) -> Result<()> {
         if self.key_dir.get(&key).is_none() {
-            return Err(KvsError::KeyNotFound);
+            return Err(StorageError::KeyNotFound);
         }
         let entry = write_value(
             &mut self.writer,
@@ -244,7 +236,7 @@ impl KvStore {
             let reader = self
                 .readers
                 .get_mut(&entry.file_id)
-                .ok_or(KvsError::Unexpected(
+                .ok_or(StorageError::Unexpected(
                     "No reader found for entry file id".to_string(),
                 ))?;
             let value = read_value(reader, entry)?;
@@ -296,6 +288,14 @@ impl KvStore {
 
         Ok(())
     }
+}
+
+#[derive(Debug, Clone)]
+struct Entry {
+    file_id: u64,
+    value_len: u32,
+    value_pos: u64,
+    _timestamp: u64,
 }
 
 fn log_path(path: &Path, gen: u64) -> PathBuf {
@@ -394,7 +394,7 @@ fn read_next_entry<R: Read + Seek>(
     let read_checksum = X25.checksum(&entry_bytes);
 
     if checksum != read_checksum {
-        return Err(KvsError::DataCorruption(checksum, read_checksum));
+        return Err(StorageError::DataCorruption(checksum, read_checksum));
     }
 
     let entry = Entry {
@@ -486,17 +486,17 @@ mod tests {
     #[test]
     fn get_stored_value() -> Result<()> {
         let temp_dir = TempDir::new().expect("unable to create temporary working directory");
-        let mut store = KvStore::open(temp_dir.path())?;
+        let mut storage = Storage::open(temp_dir.path())?;
 
-        store.set("key1".to_owned(), "value1".to_owned())?;
-        store.set("key2".to_owned(), "value2".to_owned())?;
+        storage.set("key1".to_owned(), "value1".to_owned())?;
+        storage.set("key2".to_owned(), "value2".to_owned())?;
 
-        assert_eq!(store.get("key1".to_owned())?, Some("value1".to_owned()));
-        assert_eq!(store.get("key2".to_owned())?, Some("value2".to_owned()));
+        assert_eq!(storage.get("key1".to_owned())?, Some("value1".to_owned()));
+        assert_eq!(storage.get("key2".to_owned())?, Some("value2".to_owned()));
 
         // Open from disk again and check persistent data.
-        drop(store);
-        let mut store = KvStore::open(temp_dir.path())?;
+        drop(storage);
+        let mut store = Storage::open(temp_dir.path())?;
         assert_eq!(store.get("key1".to_owned())?, Some("value1".to_owned()));
         assert_eq!(store.get("key2".to_owned())?, Some("value2".to_owned()));
 
@@ -507,16 +507,16 @@ mod tests {
     #[test]
     fn overwrite_value() -> Result<()> {
         let temp_dir = TempDir::new().expect("unable to create temporary working directory");
-        let mut store = KvStore::open(temp_dir.path())?;
+        let mut storage = Storage::open(temp_dir.path())?;
 
-        store.set("key1".to_owned(), "value1".to_owned())?;
-        assert_eq!(store.get("key1".to_owned())?, Some("value1".to_owned()));
-        store.set("key1".to_owned(), "value2".to_owned())?;
-        assert_eq!(store.get("key1".to_owned())?, Some("value2".to_owned()));
+        storage.set("key1".to_owned(), "value1".to_owned())?;
+        assert_eq!(storage.get("key1".to_owned())?, Some("value1".to_owned()));
+        storage.set("key1".to_owned(), "value2".to_owned())?;
+        assert_eq!(storage.get("key1".to_owned())?, Some("value2".to_owned()));
 
         // Open from disk again and check persistent data.
-        drop(store);
-        let mut store = KvStore::open(temp_dir.path())?;
+        drop(storage);
+        let mut store = Storage::open(temp_dir.path())?;
         assert_eq!(store.get("key1".to_owned())?, Some("value2".to_owned()));
         store.set("key1".to_owned(), "value3".to_owned())?;
         assert_eq!(store.get("key1".to_owned())?, Some("value3".to_owned()));
@@ -528,14 +528,14 @@ mod tests {
     #[test]
     fn get_non_existent_value() -> Result<()> {
         let temp_dir = TempDir::new().expect("unable to create temporary working directory");
-        let mut store = KvStore::open(temp_dir.path())?;
+        let mut storage = Storage::open(temp_dir.path())?;
 
-        store.set("key1".to_owned(), "value1".to_owned())?;
-        assert_eq!(store.get("key2".to_owned())?, None);
+        storage.set("key1".to_owned(), "value1".to_owned())?;
+        assert_eq!(storage.get("key2".to_owned())?, None);
 
         // Open from disk again and check persistent data.
-        drop(store);
-        let mut store = KvStore::open(temp_dir.path())?;
+        drop(storage);
+        let mut store = Storage::open(temp_dir.path())?;
         assert_eq!(store.get("key2".to_owned())?, None);
 
         Ok(())
@@ -544,8 +544,8 @@ mod tests {
     #[test]
     fn remove_non_existent_key() -> Result<()> {
         let temp_dir = TempDir::new().expect("unable to create temporary working directory");
-        let mut store = KvStore::open(temp_dir.path())?;
-        assert!(store.remove("key1".to_owned()).is_err());
+        let mut storage = Storage::open(temp_dir.path())?;
+        assert!(storage.remove("key1".to_owned()).is_err());
 
         Ok(())
     }
@@ -553,10 +553,10 @@ mod tests {
     #[test]
     fn remove_key() -> Result<()> {
         let temp_dir = TempDir::new().expect("unable to create temporary working directory");
-        let mut store = KvStore::open(temp_dir.path())?;
-        store.set("key1".to_owned(), "value1".to_owned())?;
-        assert!(store.remove("key1".to_owned()).is_ok());
-        assert_eq!(store.get("key1".to_owned())?, None);
+        let mut storage = Storage::open(temp_dir.path())?;
+        storage.set("key1".to_owned(), "value1".to_owned())?;
+        assert!(storage.remove("key1".to_owned()).is_ok());
+        assert_eq!(storage.get("key1".to_owned())?, None);
 
         Ok(())
     }
@@ -567,7 +567,7 @@ mod tests {
     #[test]
     fn merging() -> Result<()> {
         let temp_dir = TempDir::new().expect("unable to create temporary working directory");
-        let mut store = KvStore::open(temp_dir.path()).unwrap();
+        let mut storage = Storage::open(temp_dir.path()).unwrap();
 
         let dir_size = || {
             let entries = WalkDir::new(temp_dir.path()).into_iter();
@@ -585,7 +585,7 @@ mod tests {
             for key_id in 0..=1000 {
                 let key = format!("key{}", key_id);
                 let value = format!("{}", iter);
-                store.set(key, value).unwrap();
+                storage.set(key, value).unwrap();
             }
         }
 
@@ -595,7 +595,7 @@ mod tests {
             "expected dir size to grow before merge"
         );
 
-        store.merge()?;
+        storage.merge()?;
 
         let final_size = dir_size();
         assert!(
@@ -604,9 +604,9 @@ mod tests {
         );
 
         // test that store can read from the merged log
-        drop(store);
+        drop(storage);
 
-        let mut store = KvStore::open(temp_dir.path())?;
+        let mut store = Storage::open(temp_dir.path())?;
         for key_id in 0..=1000 {
             let key = format!("key{}", key_id);
             assert_eq!(store.get(key)?, Some(format!("{}", 1000)));

@@ -2,9 +2,9 @@ use std::string::FromUtf8Error;
 
 use thiserror::Error;
 
-/// The `KvsError` type for `KvStore`.
+/// The `StorageError` type for `Storage`.
 #[derive(Error, Debug)]
-pub enum KvsError {
+pub enum StorageError {
     /// IO error.
     #[error("An IO error occurred: {0}")]
     Io(#[from] std::io::Error),
@@ -30,5 +30,5 @@ pub enum KvsError {
     Unexpected(String),
 }
 
-/// The `Result` type for `KvStore`.
-pub type Result<T> = std::result::Result<T, KvsError>;
+/// The `Result` type for `Storage`.
+pub type Result<T> = std::result::Result<T, StorageError>;

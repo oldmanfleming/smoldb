@@ -1,5 +1,5 @@
 use clap::{Args, Parser, Subcommand};
-use smoldb::{KvStore, KvsError, Result};
+use smoldb::{Result, Storage, StorageError};
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -43,29 +43,29 @@ struct RemoveCommand {
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
-    let mut store = KvStore::open(std::env::current_dir()?)?;
+    let mut storage = Storage::open(std::env::current_dir()?)?;
 
     Ok(match cli.command {
         Command::Get(GetCommand { key }) => {
-            if let Some(value) = store.get(key)? {
+            if let Some(value) = storage.get(key)? {
                 println!("{}", value)
             } else {
                 println!("Key not found")
             }
         }
         Command::Set(SetCommand { key, value }) => {
-            store.set(key, value)?;
+            storage.set(key, value)?;
         }
-        Command::Remove(RemoveCommand { key }) => match store.remove(key) {
+        Command::Remove(RemoveCommand { key }) => match storage.remove(key) {
             Ok(_) => {}
-            Err(KvsError::KeyNotFound) => {
+            Err(StorageError::KeyNotFound) => {
                 println!("Key not found");
                 std::process::exit(1);
             }
             Err(err) => Err(err)?,
         },
         Command::Merge => {
-            store.merge()?;
+            storage.merge()?;
         }
     })
 }

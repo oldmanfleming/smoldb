@@ -1,6 +1,6 @@
 #![deny(missing_docs)]
 //! A simple key/value store
 
-mod store;
+mod storage;
 
-pub use store::{KvStore, KvsError, Result};
+pub use storage::{Result, Storage, StorageError};
