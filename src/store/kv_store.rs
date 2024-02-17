@@ -20,13 +20,15 @@ const LOG_SIZE_THRESHOLD: u64 = 1024 * 1024;
 ///
 /// Key/value pairs are stored on disk using the Bitcask append-only log format.
 ///
+/// [Bitcask Intro PDF](https://riak.com/assets/bitcask-intro.pdf)
+///
 /// Example:
 ///
 /// ```rust
-/// # use smoldb::KvStore;
-/// let mut store = KvStore::new();
-/// store.set("key".to_owned(), "value".to_owned());
-/// let val = store.get("key".to_owned());
+/// # use smoldb::{KvStore, KvsError, Result};
+/// let mut store = KvStore::open(std::env::current_dir().unwrap()).unwrap();
+/// store.set("key".to_owned(), "value".to_owned()).unwrap();
+/// let val = store.get("key".to_owned()).unwrap();
 /// assert_eq!(val, Some("value".to_owned()));
 /// ```
 pub struct KvStore {
@@ -42,7 +44,7 @@ struct Entry {
     file_id: u64,
     value_len: u32,
     value_pos: u64,
-    timestamp: u64,
+    _timestamp: u64,
 }
 
 impl KvStore {
@@ -82,9 +84,16 @@ impl KvStore {
                 .open(log_path(&path, active_file_id))?,
         );
 
-        // open a reader for each file and load the key_dir with it's entries
         let mut readers = HashMap::new();
         let mut key_dir = HashMap::new();
+
+        // TODO:
+        // open a reader for the hint file if it exists
+        // open a reader for the merge file if it exists
+        // add merge file reader to readers ?with what index?
+        // read through hint file and update key_dir
+
+        // open a reader for each file and load the key_dir with it's entries
         for file_id in file_ids {
             let mut reader = BufReader::new(
                 fs::OpenOptions::new()
@@ -164,6 +173,19 @@ impl KvStore {
         Ok(())
     }
 
+    /// Merge the log files in the directory into merge and hint files.
+    pub fn merge(&mut self) -> Result<()> {
+        // TODO:
+        // 1. Create a temp merge file
+        // 2. Create a temp hint file
+        // 3. iterate over key_dir and read the value for each entry
+        // 4. write the key and value to the merge file
+        // 5. write the key, file_id, and value size/pos to the hint file
+        // 6. remove all log files
+        // 7. rename the merge and hint files (replacing the old ones if they exist)
+        todo!()
+    }
+
     // Write a key/value pair to the given writer in the bitcask format.
     // An entry indicating the location of the value for the given key is returned.
     // Fixed-width header            Variable-length body
@@ -200,7 +222,7 @@ impl KvStore {
             file_id: self.active_file_id,
             value_len: value_len as u32,
             value_pos,
-            timestamp,
+            _timestamp: timestamp,
         })
     }
 
@@ -258,7 +280,7 @@ impl KvStore {
             file_id,
             value_len,
             value_pos,
-            timestamp,
+            _timestamp: timestamp,
         };
 
         let key = String::from_utf8(key_bytes)?;
@@ -275,13 +297,155 @@ impl KvStore {
 
             Ok(Some(String::from_utf8(value_bytes)?))
         } else {
-            Err(KvsError::Unexpected(
-                String::from("Reader for file id not found"),
-            ))
+            Err(KvsError::Unexpected(String::from(
+                "Reader for file id not found",
+            )))
         }
     }
 }
 
 fn log_path(path: &Path, gen: u64) -> PathBuf {
     path.join(format!("{}.log", gen))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+    use walkdir::WalkDir;
+
+    // Should get previously stored value.
+    #[test]
+    fn get_stored_value() -> Result<()> {
+        let temp_dir = TempDir::new().expect("unable to create temporary working directory");
+        let mut store = KvStore::open(temp_dir.path())?;
+
+        store.set("key1".to_owned(), "value1".to_owned())?;
+        store.set("key2".to_owned(), "value2".to_owned())?;
+
+        assert_eq!(store.get("key1".to_owned())?, Some("value1".to_owned()));
+        assert_eq!(store.get("key2".to_owned())?, Some("value2".to_owned()));
+
+        // Open from disk again and check persistent data.
+        drop(store);
+        let mut store = KvStore::open(temp_dir.path())?;
+        assert_eq!(store.get("key1".to_owned())?, Some("value1".to_owned()));
+        assert_eq!(store.get("key2".to_owned())?, Some("value2".to_owned()));
+
+        Ok(())
+    }
+
+    // Should overwrite existent value.
+    #[test]
+    fn overwrite_value() -> Result<()> {
+        let temp_dir = TempDir::new().expect("unable to create temporary working directory");
+        let mut store = KvStore::open(temp_dir.path())?;
+
+        store.set("key1".to_owned(), "value1".to_owned())?;
+        assert_eq!(store.get("key1".to_owned())?, Some("value1".to_owned()));
+        store.set("key1".to_owned(), "value2".to_owned())?;
+        assert_eq!(store.get("key1".to_owned())?, Some("value2".to_owned()));
+
+        // Open from disk again and check persistent data.
+        drop(store);
+        let mut store = KvStore::open(temp_dir.path())?;
+        assert_eq!(store.get("key1".to_owned())?, Some("value2".to_owned()));
+        store.set("key1".to_owned(), "value3".to_owned())?;
+        assert_eq!(store.get("key1".to_owned())?, Some("value3".to_owned()));
+
+        Ok(())
+    }
+
+    // Should get `None` when getting a non-existent key.
+    #[test]
+    fn get_non_existent_value() -> Result<()> {
+        let temp_dir = TempDir::new().expect("unable to create temporary working directory");
+        let mut store = KvStore::open(temp_dir.path())?;
+
+        store.set("key1".to_owned(), "value1".to_owned())?;
+        assert_eq!(store.get("key2".to_owned())?, None);
+
+        // Open from disk again and check persistent data.
+        drop(store);
+        let mut store = KvStore::open(temp_dir.path())?;
+        assert_eq!(store.get("key2".to_owned())?, None);
+
+        Ok(())
+    }
+
+    #[test]
+    fn remove_non_existent_key() -> Result<()> {
+        let temp_dir = TempDir::new().expect("unable to create temporary working directory");
+        let mut store = KvStore::open(temp_dir.path())?;
+        assert!(store.remove("key1".to_owned()).is_err());
+
+        Ok(())
+    }
+
+    #[test]
+    fn remove_key() -> Result<()> {
+        let temp_dir = TempDir::new().expect("unable to create temporary working directory");
+        let mut store = KvStore::open(temp_dir.path())?;
+        store.set("key1".to_owned(), "value1".to_owned())?;
+        assert!(store.remove("key1".to_owned()).is_ok());
+        assert_eq!(store.get("key1".to_owned())?, None);
+
+        Ok(())
+    }
+
+    // Insert data and call `merge` to compact log files
+    // Test dir size grows and shrinks before and after merging
+    // Test data correctness after merging
+    #[test]
+    fn merging() -> Result<()> {
+        let temp_dir = TempDir::new().expect("unable to create temporary working directory");
+        let mut store = KvStore::open(temp_dir.path()).unwrap();
+
+        let dir_size = || {
+            let entries = WalkDir::new(temp_dir.path()).into_iter();
+            let len: walkdir::Result<u64> = entries
+                .map(|res| {
+                    res.and_then(|entry| entry.metadata())
+                        .map(|metadata| metadata.len())
+                })
+                .sum();
+            len.expect("fail to get directory size")
+        };
+
+        let initial_size = dir_size();
+        for iter in 0..1000 {
+            for key_id in 0..1000 {
+                let key = format!("key{}", key_id);
+                let value = format!("{}", iter);
+                store.set(key, value).unwrap();
+            }
+        }
+
+        let new_size = dir_size();
+        assert!(
+            new_size > initial_size,
+            "expected dir size to grow before merge"
+        );
+
+        store.merge()?;
+
+        let final_size = dir_size();
+        assert!(
+            final_size < new_size,
+            "expected dir size to shrink after merge"
+        );
+
+        // test that store can read from the merged log
+        drop(store);
+
+        for iter in 0..1000 {
+            let mut store = KvStore::open(temp_dir.path())?;
+            for key_id in 0..1000 {
+                let key = format!("key{}", key_id);
+                assert_eq!(store.get(key)?, Some(format!("{}", iter)));
+            }
+        }
+
+        Ok(())
+    }
 }
