@@ -1,7 +1,7 @@
 use crate::{Result, StorageError};
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use std::{
-    collections::HashMap,
+    collections::{BTreeMap, HashMap},
     fs::{self, File},
     io::{BufReader, BufWriter, Read, Seek, Write},
     path::{Path, PathBuf},
@@ -38,7 +38,7 @@ const LOG_SIZE_THRESHOLD: u64 = 1024 * 1024;
 /// assert_eq!(val, Some("value".to_owned()));
 /// ```
 pub struct Storage {
-    key_dir: HashMap<String, Entry>,
+    key_dir: BTreeMap<String, Entry>,
     path: PathBuf,
     writer: BufWriter<File>,
     readers: HashMap<u64, BufReader<File>>,
@@ -83,7 +83,7 @@ impl Storage {
         );
 
         let mut readers = HashMap::new();
-        let mut key_dir = HashMap::new();
+        let mut key_dir = BTreeMap::new();
 
         // open a reader for the hint file if it exists
         // read through hint file and load the key_dir with it's entries
@@ -198,6 +198,11 @@ impl Storage {
         )?;
         self.key_dir.insert(key, entry);
         Ok(())
+    }
+
+    /// List all keys.
+    pub fn list_keys(&self) -> Vec<String> {
+        self.key_dir.keys().cloned().collect()
     }
 
     /// Merge the log files in the directory into merge and hint files.

@@ -18,6 +18,8 @@ enum Command {
     Remove(RemoveCommand),
     #[command(name = "merge", about = "Compact log files and remove stale data")]
     Merge,
+    #[command(name = "ls", about = "List all keys")]
+    List,
 }
 
 #[derive(Args, Debug)]
@@ -66,6 +68,11 @@ fn main() -> Result<()> {
         },
         Command::Merge => {
             storage.merge()?;
+        }
+        Command::List => {
+            for key in storage.list_keys() {
+                println!("{}", key);
+            }
         }
     })
 }
