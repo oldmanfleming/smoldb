@@ -1,4 +1,3 @@
-use crate::{Result, SmolError};
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use std::{
     collections::{BTreeMap, HashMap},
@@ -7,6 +6,8 @@ use std::{
     path::{Path, PathBuf},
     time::{SystemTime, UNIX_EPOCH},
 };
+
+use super::{Storage, StorageError, StorageResult};
 
 const X25: crc::Crc<u16> = crc::Crc::<u16>::new(&crc::CRC_16_IBM_SDLC);
 
@@ -22,7 +23,7 @@ const HINT_FILE: &str = "hint.log";
 
 const LOG_SIZE_THRESHOLD: u64 = 1024 * 1024;
 
-/// `Storage` stores string key/value pairs durably conforming to the Bitcask API.
+/// `Bitcask` stores string key/value pairs durably conforming to the Bitcask API.
 ///
 /// Key/value pairs are stored on disk using the Bitcask append-only log format.
 ///
@@ -31,13 +32,13 @@ const LOG_SIZE_THRESHOLD: u64 = 1024 * 1024;
 /// Example:
 ///
 /// ```rust
-/// # use smoldb::{Storage, StorageError, Result};
-/// let mut storage = Storage::open(std::env::current_dir().unwrap()).unwrap();
+/// # use smoldb::{Bitcask, StorageError, Result};
+/// let mut storage = Bitcask::open(std::env::current_dir().unwrap()).unwrap();
 /// storage.set("key".to_owned(), "value".to_owned()).unwrap();
 /// let val = storage.get("key".to_owned()).unwrap();
 /// assert_eq!(val, Some("value".to_owned()));
 /// ```
-pub struct Storage {
+pub struct Bitcask {
     key_dir: BTreeMap<String, Entry>,
     path: PathBuf,
     writer: BufWriter<File>,
@@ -45,17 +46,17 @@ pub struct Storage {
     active_file_id: u64,
 }
 
-impl Storage {
+impl Bitcask {
     /// Opens `Storage` at a given path.
     ///
     /// If the path does not exist, it will be created.
-    pub fn open(path: impl Into<PathBuf>) -> Result<Storage> {
+    pub fn open(path: impl Into<PathBuf>) -> StorageResult<Bitcask> {
         let path: PathBuf = path.into();
         fs::create_dir_all(&path)?;
 
         // find all log files in the directory and sort them by file id
         let mut file_ids: Vec<u64> = fs::read_dir(&path)?
-            .flat_map(|res| -> Result<_> { Ok(res?.path()) })
+            .flat_map(|res| -> StorageResult<_> { Ok(res?.path()) })
             .filter(|path| path.is_file() && path.extension() == Some(LOG_FILE_EXT.as_ref()))
             .map(|path| {
                 path.file_stem()
@@ -124,7 +125,7 @@ impl Storage {
             readers.insert(file_id, reader);
         }
 
-        Ok(Storage {
+        Ok(Bitcask {
             key_dir,
             path,
             writer,
@@ -133,80 +134,8 @@ impl Storage {
         })
     }
 
-    /// Gets the string value of a given string key.
-    ///
-    /// Returns `None` if the given key does not exist.
-    pub fn get(&mut self, key: String) -> Result<Option<String>> {
-        if let Some(entry) = self.key_dir.get(&key).cloned() {
-            if entry.value_len == 0 {
-                return Ok(None);
-            }
-
-            if let Some(reader) = self.readers.get_mut(&entry.file_id) {
-                return Ok(Some(read_value(reader, &entry)?));
-            }
-
-            return Err(SmolError::Unexpected(
-                "No reader found for entry file id".to_string(),
-            ));
-        }
-        Ok(None)
-    }
-
-    /// Sets the value of a string key to a string.
-    ///
-    /// If the key already exists, the previous value will be overwritten.
-    pub fn set(&mut self, key: String, value: String) -> Result<()> {
-        let entry = write_value(&mut self.writer, self.active_file_id, &key, &value)?;
-
-        // If the size of the active file is greater than the threshold we will create a new active file
-        //
-        // Adding the pos of the last value written to the end of the file with it's length will
-        // give us the total size in bytes of the active file.
-        if entry.value_pos + (entry.value_len as u64) > LOG_SIZE_THRESHOLD {
-            self.active_file_id += 1;
-            let active_file = log_path(&self.path, self.active_file_id);
-            self.writer = BufWriter::new(
-                fs::OpenOptions::new()
-                    .create(true)
-                    .append(true)
-                    .open(&active_file)?,
-            );
-            self.readers.insert(
-                self.active_file_id,
-                BufReader::new(fs::File::open(&active_file)?),
-            );
-        }
-
-        self.key_dir.insert(key, entry);
-
-        Ok(())
-    }
-
-    /// Remove a given key.
-    ///
-    /// Returns `StorageError::KeyNotFound` if the key does not exist.
-    pub fn remove(&mut self, key: String) -> Result<()> {
-        if self.key_dir.get(&key).is_none() {
-            return Err(SmolError::KeyNotFound);
-        }
-        let entry = write_value(
-            &mut self.writer,
-            self.active_file_id,
-            &key,
-            &TOMBSTONE.to_string(),
-        )?;
-        self.key_dir.insert(key, entry);
-        Ok(())
-    }
-
-    /// List all keys.
-    pub fn list_keys(&self) -> Vec<String> {
-        self.key_dir.keys().cloned().collect()
-    }
-
     /// Merge the log files in the directory into merge and hint files.
-    pub fn merge(&mut self) -> Result<()> {
+    pub fn merge(&mut self) -> StorageResult<()> {
         // 1. Create temp merge/hint files
         // 2. Iterate over key_dir and read the value for each entry
         // 3. Write the key and value to the merge file
@@ -241,7 +170,7 @@ impl Storage {
             let reader = self
                 .readers
                 .get_mut(&entry.file_id)
-                .ok_or(SmolError::Unexpected(
+                .ok_or(StorageError::Unexpected(
                     "No reader found for entry file id".to_string(),
                 ))?;
             let value = read_value(reader, entry)?;
@@ -295,6 +224,80 @@ impl Storage {
     }
 }
 
+impl Storage for Bitcask {
+    /// Gets the string value of a given string key.
+    ///
+    /// Returns `None` if the given key does not exist.
+    fn get(&mut self, key: String) -> StorageResult<Option<String>> {
+        if let Some(entry) = self.key_dir.get(&key).cloned() {
+            if entry.value_len == 0 {
+                return Ok(None);
+            }
+
+            if let Some(reader) = self.readers.get_mut(&entry.file_id) {
+                return Ok(Some(read_value(reader, &entry)?));
+            }
+
+            return Err(StorageError::Unexpected(
+                "No reader found for entry file id".to_string(),
+            ));
+        }
+        Ok(None)
+    }
+
+    /// Sets the value of a string key to a string.
+    ///
+    /// If the key already exists, the previous value will be overwritten.
+    fn set(&mut self, key: String, value: String) -> StorageResult<()> {
+        let entry = write_value(&mut self.writer, self.active_file_id, &key, &value)?;
+
+        // If the size of the active file is greater than the threshold we will create a new active file
+        //
+        // Adding the pos of the last value written to the end of the file with it's length will
+        // give us the total size in bytes of the active file.
+        if entry.value_pos + (entry.value_len as u64) > LOG_SIZE_THRESHOLD {
+            self.active_file_id += 1;
+            let active_file = log_path(&self.path, self.active_file_id);
+            self.writer = BufWriter::new(
+                fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(&active_file)?,
+            );
+            self.readers.insert(
+                self.active_file_id,
+                BufReader::new(fs::File::open(&active_file)?),
+            );
+        }
+
+        self.key_dir.insert(key, entry);
+
+        Ok(())
+    }
+
+    /// Remove a given key.
+    ///
+    /// Returns `StorageError::KeyNotFound` if the key does not exist.
+    fn remove(&mut self, key: String) -> StorageResult<()> {
+        if self.key_dir.get(&key).is_none() {
+            return Err(StorageError::KeyNotFound);
+        }
+        let entry = write_value(
+            &mut self.writer,
+            self.active_file_id,
+            &key,
+            &TOMBSTONE.to_string(),
+        )?;
+        self.key_dir.insert(key, entry);
+        Ok(())
+    }
+
+    /// List all keys.
+    fn list_keys(&self) -> Vec<String> {
+        self.key_dir.keys().cloned().collect()
+    }
+}
+
 #[derive(Debug, Clone)]
 struct Entry {
     file_id: u64,
@@ -324,7 +327,7 @@ fn write_value<W: Write + Seek>(
     file_id: u64,
     key: &String,
     value: &String,
-) -> Result<Entry> {
+) -> StorageResult<Entry> {
     let key_len = key.len();
     let value_len = value.len();
     let timestamp = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
@@ -366,7 +369,7 @@ fn write_value<W: Write + Seek>(
 fn read_next_entry<R: Read + Seek>(
     reader: &mut R,
     file_id: u64,
-) -> Result<Option<(String, Entry)>> {
+) -> StorageResult<Option<(String, Entry)>> {
     // Check if we are at the end of the reader
     // Move back to the current position after checking
     let current_pos = reader.seek(std::io::SeekFrom::Current(0))?;
@@ -399,7 +402,7 @@ fn read_next_entry<R: Read + Seek>(
     let read_checksum = X25.checksum(&entry_bytes);
 
     if checksum != read_checksum {
-        return Err(SmolError::DataCorruption(checksum, read_checksum));
+        return Err(StorageError::DataCorruption(checksum, read_checksum));
     }
 
     let entry = Entry {
@@ -415,7 +418,7 @@ fn read_next_entry<R: Read + Seek>(
 }
 
 // Read the value for the given entry from the given reader.
-fn read_value<R: Read + Seek>(reader: &mut R, entry: &Entry) -> Result<String> {
+fn read_value<R: Read + Seek>(reader: &mut R, entry: &Entry) -> StorageResult<String> {
     reader.seek(std::io::SeekFrom::Start(entry.value_pos))?;
 
     let mut value_bytes = vec![0; entry.value_len as usize];
@@ -434,7 +437,7 @@ fn read_value<R: Read + Seek>(reader: &mut R, entry: &Entry) -> Result<String> {
 // val_len (4 bytes)
 // val_pos (8 bytes)
 // key (key_len bytes)
-fn write_hint<W: Write + Seek>(writer: &mut W, key: &String, entry: &Entry) -> Result<()> {
+fn write_hint<W: Write + Seek>(writer: &mut W, key: &String, entry: &Entry) -> StorageResult<()> {
     writer.write_u64::<BigEndian>(entry._timestamp)?;
     writer.write_u32::<BigEndian>(key.len() as u32)?;
     writer.write_u32::<BigEndian>(entry.value_len)?;
@@ -453,7 +456,7 @@ fn write_hint<W: Write + Seek>(writer: &mut W, key: &String, entry: &Entry) -> R
 // val_len (4 bytes)
 // val_pos (8 bytes)
 // key (key_len bytes)
-fn read_next_hint<R: Read + Seek>(reader: &mut R) -> Result<Option<(String, Entry)>> {
+fn read_next_hint<R: Read + Seek>(reader: &mut R) -> StorageResult<Option<(String, Entry)>> {
     // Check if we are at the end of the reader
     // Move back to the current position after checking
     let current_pos = reader.seek(std::io::SeekFrom::Current(0))?;
@@ -489,19 +492,19 @@ mod tests {
 
     // Should get previously stored value.
     #[test]
-    fn get_stored_value() -> Result<()> {
+    fn get_stored_value() -> StorageResult<()> {
         let temp_dir = TempDir::new().expect("unable to create temporary working directory");
-        let mut storage = Storage::open(temp_dir.path())?;
+        let mut bitcask = Bitcask::open(temp_dir.path())?;
 
-        storage.set("key1".to_owned(), "value1".to_owned())?;
-        storage.set("key2".to_owned(), "value2".to_owned())?;
+        bitcask.set("key1".to_owned(), "value1".to_owned())?;
+        bitcask.set("key2".to_owned(), "value2".to_owned())?;
 
-        assert_eq!(storage.get("key1".to_owned())?, Some("value1".to_owned()));
-        assert_eq!(storage.get("key2".to_owned())?, Some("value2".to_owned()));
+        assert_eq!(bitcask.get("key1".to_owned())?, Some("value1".to_owned()));
+        assert_eq!(bitcask.get("key2".to_owned())?, Some("value2".to_owned()));
 
         // Open from disk again and check persistent data.
-        drop(storage);
-        let mut store = Storage::open(temp_dir.path())?;
+        drop(bitcask);
+        let mut store = Bitcask::open(temp_dir.path())?;
         assert_eq!(store.get("key1".to_owned())?, Some("value1".to_owned()));
         assert_eq!(store.get("key2".to_owned())?, Some("value2".to_owned()));
 
@@ -510,18 +513,18 @@ mod tests {
 
     // Should overwrite existent value.
     #[test]
-    fn overwrite_value() -> Result<()> {
+    fn overwrite_value() -> StorageResult<()> {
         let temp_dir = TempDir::new().expect("unable to create temporary working directory");
-        let mut storage = Storage::open(temp_dir.path())?;
+        let mut bitcask = Bitcask::open(temp_dir.path())?;
 
-        storage.set("key1".to_owned(), "value1".to_owned())?;
-        assert_eq!(storage.get("key1".to_owned())?, Some("value1".to_owned()));
-        storage.set("key1".to_owned(), "value2".to_owned())?;
-        assert_eq!(storage.get("key1".to_owned())?, Some("value2".to_owned()));
+        bitcask.set("key1".to_owned(), "value1".to_owned())?;
+        assert_eq!(bitcask.get("key1".to_owned())?, Some("value1".to_owned()));
+        bitcask.set("key1".to_owned(), "value2".to_owned())?;
+        assert_eq!(bitcask.get("key1".to_owned())?, Some("value2".to_owned()));
 
         // Open from disk again and check persistent data.
-        drop(storage);
-        let mut store = Storage::open(temp_dir.path())?;
+        drop(bitcask);
+        let mut store = Bitcask::open(temp_dir.path())?;
         assert_eq!(store.get("key1".to_owned())?, Some("value2".to_owned()));
         store.set("key1".to_owned(), "value3".to_owned())?;
         assert_eq!(store.get("key1".to_owned())?, Some("value3".to_owned()));
@@ -531,37 +534,37 @@ mod tests {
 
     // Should get `None` when getting a non-existent key.
     #[test]
-    fn get_non_existent_value() -> Result<()> {
+    fn get_non_existent_value() -> StorageResult<()> {
         let temp_dir = TempDir::new().expect("unable to create temporary working directory");
-        let mut storage = Storage::open(temp_dir.path())?;
+        let mut bitcask = Bitcask::open(temp_dir.path())?;
 
-        storage.set("key1".to_owned(), "value1".to_owned())?;
-        assert_eq!(storage.get("key2".to_owned())?, None);
+        bitcask.set("key1".to_owned(), "value1".to_owned())?;
+        assert_eq!(bitcask.get("key2".to_owned())?, None);
 
         // Open from disk again and check persistent data.
-        drop(storage);
-        let mut store = Storage::open(temp_dir.path())?;
+        drop(bitcask);
+        let mut store = Bitcask::open(temp_dir.path())?;
         assert_eq!(store.get("key2".to_owned())?, None);
 
         Ok(())
     }
 
     #[test]
-    fn remove_non_existent_key() -> Result<()> {
+    fn remove_non_existent_key() -> StorageResult<()> {
         let temp_dir = TempDir::new().expect("unable to create temporary working directory");
-        let mut storage = Storage::open(temp_dir.path())?;
-        assert!(storage.remove("key1".to_owned()).is_err());
+        let mut bitcask = Bitcask::open(temp_dir.path())?;
+        assert!(bitcask.remove("key1".to_owned()).is_err());
 
         Ok(())
     }
 
     #[test]
-    fn remove_key() -> Result<()> {
+    fn remove_key() -> StorageResult<()> {
         let temp_dir = TempDir::new().expect("unable to create temporary working directory");
-        let mut storage = Storage::open(temp_dir.path())?;
-        storage.set("key1".to_owned(), "value1".to_owned())?;
-        assert!(storage.remove("key1".to_owned()).is_ok());
-        assert_eq!(storage.get("key1".to_owned())?, None);
+        let mut bitcask = Bitcask::open(temp_dir.path())?;
+        bitcask.set("key1".to_owned(), "value1".to_owned())?;
+        assert!(bitcask.remove("key1".to_owned()).is_ok());
+        assert_eq!(bitcask.get("key1".to_owned())?, None);
 
         Ok(())
     }
@@ -570,9 +573,9 @@ mod tests {
     // Test dir size grows and shrinks before and after merging
     // Test data correctness after merging
     #[test]
-    fn merging() -> Result<()> {
+    fn merging() -> StorageResult<()> {
         let temp_dir = TempDir::new().expect("unable to create temporary working directory");
-        let mut storage = Storage::open(temp_dir.path()).unwrap();
+        let mut bitcask = Bitcask::open(temp_dir.path()).unwrap();
 
         let dir_size = || {
             let entries = WalkDir::new(temp_dir.path()).into_iter();
@@ -590,7 +593,7 @@ mod tests {
             for key_id in 0..=1000 {
                 let key = format!("key{}", key_id);
                 let value = format!("{}", iter);
-                storage.set(key, value).unwrap();
+                bitcask.set(key, value).unwrap();
             }
         }
 
@@ -600,7 +603,7 @@ mod tests {
             "expected dir size to grow before merge"
         );
 
-        storage.merge()?;
+        bitcask.merge()?;
 
         let final_size = dir_size();
         assert!(
@@ -609,9 +612,9 @@ mod tests {
         );
 
         // test that store can read from the merged log
-        drop(storage);
+        drop(bitcask);
 
-        let mut store = Storage::open(temp_dir.path())?;
+        let mut store = Bitcask::open(temp_dir.path())?;
         for key_id in 0..=1000 {
             let key = format!("key{}", key_id);
             assert_eq!(store.get(key)?, Some(format!("{}", 1000)));

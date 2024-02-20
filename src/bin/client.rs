@@ -1,5 +1,5 @@
 use clap::{Args, Parser, Subcommand};
-use smoldb::{Result, SmolError, Storage};
+use smoldb::{Bitcask, Storage, StorageError, StorageResult};
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -42,35 +42,35 @@ struct RemoveCommand {
     key: String,
 }
 
-fn main() -> Result<()> {
+fn main() -> StorageResult<()> {
     let cli = Cli::parse();
 
-    let mut storage = Storage::open(std::env::current_dir()?)?;
+    let mut bitcask = Bitcask::open(std::env::current_dir()?)?;
 
     Ok(match cli.command {
         Command::Get(GetCommand { key }) => {
-            if let Some(value) = storage.get(key)? {
+            if let Some(value) = bitcask.get(key)? {
                 println!("{}", value)
             } else {
                 println!("Key not found")
             }
         }
         Command::Set(SetCommand { key, value }) => {
-            storage.set(key, value)?;
+            bitcask.set(key, value)?;
         }
-        Command::Remove(RemoveCommand { key }) => match storage.remove(key) {
+        Command::Remove(RemoveCommand { key }) => match bitcask.remove(key) {
             Ok(_) => {}
-            Err(SmolError::KeyNotFound) => {
+            Err(StorageError::KeyNotFound) => {
                 println!("Key not found");
                 std::process::exit(1);
             }
             Err(err) => Err(err)?,
         },
         Command::Merge => {
-            storage.merge()?;
+            bitcask.merge()?;
         }
         Command::List => {
-            for key in storage.list_keys() {
+            for key in bitcask.list_keys() {
                 println!("{}", key);
             }
         }

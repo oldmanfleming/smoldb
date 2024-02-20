@@ -157,7 +157,7 @@ fn cli_log_configuration() {
     let stderr_path = temp_dir.path().join("stderr");
     let mut cmd = Command::cargo_bin("smoldb").unwrap();
     let mut child = cmd
-        .args(&["--engine", "kvs", "--addr", "127.0.0.1:4001"])
+        .args(&["--storage", "bitcask", "--addr", "127.0.0.1:4001"])
         .current_dir(&temp_dir)
         .stderr(File::create(&stderr_path).unwrap())
         .spawn()
@@ -167,18 +167,18 @@ fn cli_log_configuration() {
 
     let content = fs::read_to_string(&stderr_path).expect("unable to read from stderr file");
     assert!(content.contains(env!("CARGO_PKG_VERSION")));
-    assert!(content.contains("kvs"));
+    assert!(content.contains("bitcask"));
     assert!(content.contains("127.0.0.1:4001"));
 }
 
 #[test]
-fn cli_wrong_engine() {
-    // sled first, kvs second
+fn cli_wrong_storage() {
+    // sled first, bitcask second
     {
         let temp_dir = TempDir::new().unwrap();
         let mut cmd = Command::cargo_bin("smoldb").unwrap();
         let mut child = cmd
-            .args(&["--engine", "sled", "--addr", "127.0.0.1:4002"])
+            .args(&["--storage", "sled", "--addr", "127.0.0.1:4002"])
             .current_dir(&temp_dir)
             .spawn()
             .unwrap();
@@ -186,18 +186,18 @@ fn cli_wrong_engine() {
         child.kill().expect("server exited before killed");
 
         let mut cmd = Command::cargo_bin("smoldb").unwrap();
-        cmd.args(&["--engine", "kvs", "--addr", "127.0.0.1:4003"])
+        cmd.args(&["--storage", "kvs", "--addr", "127.0.0.1:4003"])
             .current_dir(&temp_dir)
             .assert()
             .failure();
     }
 
-    // kvs first, sled second
+    // bitcask first, sled second
     {
         let temp_dir = TempDir::new().unwrap();
         let mut cmd = Command::cargo_bin("smoldb").unwrap();
         let mut child = cmd
-            .args(&["--engine", "kvs", "--addr", "127.0.0.1:4002"])
+            .args(&["--storage", "bitcask", "--addr", "127.0.0.1:4002"])
             .current_dir(&temp_dir)
             .spawn()
             .unwrap();
@@ -205,19 +205,19 @@ fn cli_wrong_engine() {
         child.kill().expect("server exited before killed");
 
         let mut cmd = Command::cargo_bin("smoldb").unwrap();
-        cmd.args(&["--engine", "sled", "--addr", "127.0.0.1:4003"])
+        cmd.args(&["--storage", "sled", "--addr", "127.0.0.1:4003"])
             .current_dir(&temp_dir)
             .assert()
             .failure();
     }
 }
 
-fn cli_access_server(engine: &str, addr: &str) {
+fn cli_access_server(storage: &str, addr: &str) {
     let (sender, receiver) = mpsc::sync_channel(0);
     let temp_dir = TempDir::new().unwrap();
     let mut server = Command::cargo_bin("smoldb").unwrap();
     let mut child = server
-        .args(&["--engine", engine, "--addr", addr])
+        .args(&["--storage", storage, "--addr", addr])
         .current_dir(&temp_dir)
         .spawn()
         .unwrap();
@@ -298,7 +298,7 @@ fn cli_access_server(engine: &str, addr: &str) {
     let (sender, receiver) = mpsc::sync_channel(0);
     let mut server = Command::cargo_bin("smoldb").unwrap();
     let mut child = server
-        .args(&["--engine", engine, "--addr", addr])
+        .args(&["--storage", storage, "--addr", addr])
         .current_dir(&temp_dir)
         .spawn()
         .unwrap();
@@ -327,8 +327,8 @@ fn cli_access_server(engine: &str, addr: &str) {
 }
 
 #[test]
-fn cli_access_server_kvs_engine() {
-    cli_access_server("kvs", "127.0.0.1:4004");
+fn cli_access_server_bitcask_engine() {
+    cli_access_server("bitcask", "127.0.0.1:4004");
 }
 
 #[test]
