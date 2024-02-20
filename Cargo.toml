@@ -18,3 +18,11 @@ assert_cmd = "2.0.13"
 predicates = "3.1.0"
 tempfile = "3.10.0"
 walkdir = "2.4.0"
+
+[[bin]]
+name = "smoldb"
+path = "src/bin/server.rs"
+
+[[bin]]
+name = "smolcli"
+path = "src/bin/client.rs"

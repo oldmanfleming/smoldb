@@ -1,5 +1,5 @@
 use clap::{Args, Parser, Subcommand};
-use smoldb::{Result, Storage, StorageError};
+use smoldb::{Result, SmolError, Storage};
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -60,7 +60,7 @@ fn main() -> Result<()> {
         }
         Command::Remove(RemoveCommand { key }) => match storage.remove(key) {
             Ok(_) => {}
-            Err(StorageError::KeyNotFound) => {
+            Err(SmolError::KeyNotFound) => {
                 println!("Key not found");
                 std::process::exit(1);
             }

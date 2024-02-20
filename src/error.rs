@@ -4,7 +4,7 @@ use thiserror::Error;
 
 /// The `StorageError` type for `Storage`.
 #[derive(Error, Debug)]
-pub enum StorageError {
+pub enum SmolError {
     /// IO error.
     #[error("An IO error occurred: {0}")]
     Io(#[from] std::io::Error),
@@ -31,4 +31,4 @@ pub enum StorageError {
 }
 
 /// The `Result` type for `Storage`.
-pub type Result<T> = std::result::Result<T, StorageError>;
+pub type Result<T> = std::result::Result<T, SmolError>;

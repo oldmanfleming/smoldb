@@ -1,4 +1,4 @@
-use crate::{Result, StorageError};
+use crate::{Result, SmolError};
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use std::{
     collections::{BTreeMap, HashMap},
@@ -146,7 +146,7 @@ impl Storage {
                 return Ok(Some(read_value(reader, &entry)?));
             }
 
-            return Err(StorageError::Unexpected(
+            return Err(SmolError::Unexpected(
                 "No reader found for entry file id".to_string(),
             ));
         }
@@ -188,7 +188,7 @@ impl Storage {
     /// Returns `StorageError::KeyNotFound` if the key does not exist.
     pub fn remove(&mut self, key: String) -> Result<()> {
         if self.key_dir.get(&key).is_none() {
-            return Err(StorageError::KeyNotFound);
+            return Err(SmolError::KeyNotFound);
         }
         let entry = write_value(
             &mut self.writer,
@@ -241,7 +241,7 @@ impl Storage {
             let reader = self
                 .readers
                 .get_mut(&entry.file_id)
-                .ok_or(StorageError::Unexpected(
+                .ok_or(SmolError::Unexpected(
                     "No reader found for entry file id".to_string(),
                 ))?;
             let value = read_value(reader, entry)?;
@@ -399,7 +399,7 @@ fn read_next_entry<R: Read + Seek>(
     let read_checksum = X25.checksum(&entry_bytes);
 
     if checksum != read_checksum {
-        return Err(StorageError::DataCorruption(checksum, read_checksum));
+        return Err(SmolError::DataCorruption(checksum, read_checksum));
     }
 
     let entry = Entry {
