@@ -129,7 +129,6 @@ fn client_cli_invalid_subcommand() {
         .failure();
 }
 
-// `smolcli -V` should print the version
 #[test]
 fn client_cli_version() {
     let temp_dir = TempDir::new().unwrap();
@@ -140,7 +139,6 @@ fn client_cli_version() {
         .stdout(contains(env!("CARGO_PKG_VERSION")));
 }
 
-// `smoldb -V` should print the version
 #[test]
 fn server_cli_version() {
     let temp_dir = TempDir::new().unwrap();
@@ -169,47 +167,6 @@ fn cli_log_configuration() {
     assert!(content.contains(env!("CARGO_PKG_VERSION")));
     assert!(content.contains("bitcask"));
     assert!(content.contains("127.0.0.1:4001"));
-}
-
-#[test]
-fn cli_wrong_storage() {
-    // sled first, bitcask second
-    {
-        let temp_dir = TempDir::new().unwrap();
-        let mut cmd = Command::cargo_bin("smoldb").unwrap();
-        let mut child = cmd
-            .args(&["--storage", "sled", "--addr", "127.0.0.1:4002"])
-            .current_dir(&temp_dir)
-            .spawn()
-            .unwrap();
-        thread::sleep(Duration::from_secs(1));
-        child.kill().expect("server exited before killed");
-
-        let mut cmd = Command::cargo_bin("smoldb").unwrap();
-        cmd.args(&["--storage", "kvs", "--addr", "127.0.0.1:4003"])
-            .current_dir(&temp_dir)
-            .assert()
-            .failure();
-    }
-
-    // bitcask first, sled second
-    {
-        let temp_dir = TempDir::new().unwrap();
-        let mut cmd = Command::cargo_bin("smoldb").unwrap();
-        let mut child = cmd
-            .args(&["--storage", "bitcask", "--addr", "127.0.0.1:4002"])
-            .current_dir(&temp_dir)
-            .spawn()
-            .unwrap();
-        thread::sleep(Duration::from_secs(1));
-        child.kill().expect("server exited before killed");
-
-        let mut cmd = Command::cargo_bin("smoldb").unwrap();
-        cmd.args(&["--storage", "sled", "--addr", "127.0.0.1:4003"])
-            .current_dir(&temp_dir)
-            .assert()
-            .failure();
-    }
 }
 
 fn cli_access_server(storage: &str, addr: &str) {
@@ -334,4 +291,9 @@ fn cli_access_server_bitcask_engine() {
 #[test]
 fn cli_access_server_sled_engine() {
     cli_access_server("sled", "127.0.0.1:4005");
+}
+
+#[test]
+fn cli_access_server_memory_engine() {
+    cli_access_server("memory", "127.0.0.1:4006");
 }

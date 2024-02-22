@@ -1,11 +1,17 @@
+use std::net::SocketAddr;
+
 use clap::{Args, Parser, Subcommand};
-use smoldb::{Bitcask, Storage, StorageError, StorageResult};
+
+const DEFAULT_ADDR: &str = "127.0.0.1:4001";
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Cli {
     #[clap(subcommand)]
     command: Command,
+
+    #[arg(short, long, value_enum, default_value = DEFAULT_ADDR)]
+    addr: SocketAddr,
 }
 
 #[derive(Subcommand, Debug)]
@@ -42,37 +48,26 @@ struct RemoveCommand {
     key: String,
 }
 
-fn main() -> StorageResult<()> {
+fn main() {
     let cli = Cli::parse();
 
-    let mut bitcask = Bitcask::open(std::env::current_dir()?)?;
+    let _addr = cli.addr;
 
-    Ok(match cli.command {
+    match cli.command {
         Command::Get(GetCommand { key }) => {
-            if let Some(value) = bitcask.get(key)? {
-                println!("{}", value)
-            } else {
-                println!("Key not found")
-            }
+            todo!();
         }
         Command::Set(SetCommand { key, value }) => {
-            bitcask.set(key, value)?;
+            todo!();
         }
-        Command::Remove(RemoveCommand { key }) => match bitcask.remove(key) {
-            Ok(_) => {}
-            Err(StorageError::KeyNotFound) => {
-                println!("Key not found");
-                std::process::exit(1);
-            }
-            Err(err) => Err(err)?,
-        },
+        Command::Remove(RemoveCommand { key }) => {
+            todo!();
+        }
         Command::Merge => {
-            bitcask.merge()?;
+            todo!();
         }
         Command::List => {
-            for key in bitcask.list_keys() {
-                println!("{}", key);
-            }
+            todo!();
         }
-    })
+    }
 }
