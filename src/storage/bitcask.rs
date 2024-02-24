@@ -250,7 +250,6 @@ impl Storage for Bitcask {
     /// If the key already exists, the previous value will be overwritten.
     fn set(&mut self, key: String, value: String) -> StorageResult<()> {
         let entry = write_value(&mut self.writer, self.active_file_id, &key, &value)?;
-
         // If the size of the active file is greater than the threshold we will create a new active file
         //
         // Adding the pos of the last value written to the end of the file with it's length will
@@ -294,7 +293,13 @@ impl Storage for Bitcask {
 
     /// List all keys.
     fn list_keys(&self) -> Vec<String> {
-        self.key_dir.keys().cloned().collect()
+        // Keys that have been removed will still have an entry in the key_dir
+        // but the value_len will be 0.
+        self.key_dir
+            .iter()
+            .filter(|(_, entry)| entry.value_len != 0)
+            .map(|(key, _)| key.clone())
+            .collect()
     }
 }
 

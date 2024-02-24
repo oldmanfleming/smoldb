@@ -1,10 +1,7 @@
-use std::{
-    io::Write,
-    net::{SocketAddr, TcpStream},
-};
+use std::net::SocketAddr;
 
 use clap::{Args, Parser, Subcommand};
-use thiserror::Error;
+use smoldb::{Client, ClientResult};
 
 const DEFAULT_ADDR: &str = "127.0.0.1:4001";
 
@@ -26,8 +23,6 @@ enum Command {
     Set(SetCommand),
     #[command(name = "rm", about = "Remove a given key")]
     Remove(RemoveCommand),
-    #[command(name = "merge", about = "Compact log files and remove stale data")]
-    Merge,
     #[command(name = "ls", about = "List all keys")]
     List,
 }
@@ -52,39 +47,34 @@ struct RemoveCommand {
     key: String,
 }
 
-#[derive(Error, Debug)]
-enum ClientError {
-    #[error("IO error: {0}")]
-    Io(#[from] std::io::Error),
-}
-
-fn main() -> Result<(), ClientError> {
+fn main() -> ClientResult<()> {
     let cli = Cli::parse();
 
-    let mut stream = TcpStream::connect(cli.addr)?;
-
+    let mut client = Client::connect(&cli.addr)?;
     match cli.command {
         Command::Get(GetCommand { key }) => {
-            let message = format!("GET {}", key);
-            stream.write_all(message.as_bytes())?;
-            stream.flush()?;
+            if let Some(value) = client.get(key)? {
+                println!("{}", value);
+            } else {
+                println!("Key not found");
+            }
         }
         Command::Set(SetCommand {
-            key: _key,
-            value: _value,
+            key,
+            value,
         }) => {
-            todo!();
+            client.set(key, value)?;
         }
-        Command::Remove(RemoveCommand { key: _key }) => {
-            todo!();
-        }
-        Command::Merge => {
-            todo!();
+        Command::Remove(RemoveCommand { key }) => {
+            client.remove(key)?;
         }
         Command::List => {
-            todo!();
+            let keys = client.list()?;
+            for key in keys {
+                println!("{}", key);
+            }
         }
-    }
+    };
 
     Ok(())
 }

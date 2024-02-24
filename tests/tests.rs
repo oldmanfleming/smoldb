@@ -34,14 +34,14 @@ fn client_cli_invalid_get() {
 
     Command::cargo_bin("smolcli")
         .unwrap()
-        .args(&["get", "key", "--addr", "invalid-addr"])
+        .args(&["--addr", "invalid-addr", "get", "key"])
         .current_dir(&temp_dir)
         .assert()
         .failure();
 
     Command::cargo_bin("smolcli")
         .unwrap()
-        .args(&["get", "key", "--unknown-flag"])
+        .args(&["--unknown-flag", "get", "key"])
         .current_dir(&temp_dir)
         .assert()
         .failure();
@@ -73,14 +73,14 @@ fn client_cli_invalid_set() {
 
     Command::cargo_bin("smolcli")
         .unwrap()
-        .args(&["set", "key", "value", "--addr", "invalid-addr"])
+        .args(&["--addr", "invalid-addr", "set", "key", "value"])
         .current_dir(&temp_dir)
         .assert()
         .failure();
 
     Command::cargo_bin("smolcli")
         .unwrap()
-        .args(&["get", "key", "--unknown-flag"])
+        .args(&["--unknown-flag", "get", "key"])
         .current_dir(&temp_dir)
         .assert()
         .failure();
@@ -105,14 +105,14 @@ fn client_cli_invalid_rm() {
 
     Command::cargo_bin("smolcli")
         .unwrap()
-        .args(&["rm", "key", "--addr", "invalid-addr"])
+        .args(&["--addr", "invalid-addr", "rm", "key"])
         .current_dir(&temp_dir)
         .assert()
         .failure();
 
     Command::cargo_bin("smolcli")
         .unwrap()
-        .args(&["rm", "key", "--unknown-flag"])
+        .args(&["--unknown-flag", "rm", "key"])
         .current_dir(&temp_dir)
         .assert()
         .failure();
@@ -186,7 +186,7 @@ fn cli_access_server(storage: &str, addr: &str) {
 
     Command::cargo_bin("smolcli")
         .unwrap()
-        .args(&["set", "key1", "value1", "--addr", addr])
+        .args(&["--addr", addr, "set", "key1", "value1"])
         .current_dir(&temp_dir)
         .assert()
         .success()
@@ -194,7 +194,7 @@ fn cli_access_server(storage: &str, addr: &str) {
 
     Command::cargo_bin("smolcli")
         .unwrap()
-        .args(&["get", "key1", "--addr", addr])
+        .args(&["--addr", addr, "get", "key1"])
         .current_dir(&temp_dir)
         .assert()
         .success()
@@ -202,7 +202,7 @@ fn cli_access_server(storage: &str, addr: &str) {
 
     Command::cargo_bin("smolcli")
         .unwrap()
-        .args(&["set", "key1", "value2", "--addr", addr])
+        .args(&["--addr", addr, "set", "key1", "value2"])
         .current_dir(&temp_dir)
         .assert()
         .success()
@@ -210,7 +210,7 @@ fn cli_access_server(storage: &str, addr: &str) {
 
     Command::cargo_bin("smolcli")
         .unwrap()
-        .args(&["get", "key1", "--addr", addr])
+        .args(&["--addr", addr, "get", "key1"])
         .current_dir(&temp_dir)
         .assert()
         .success()
@@ -218,7 +218,7 @@ fn cli_access_server(storage: &str, addr: &str) {
 
     Command::cargo_bin("smolcli")
         .unwrap()
-        .args(&["get", "key2", "--addr", addr])
+        .args(&["--addr", addr, "get", "key2"])
         .current_dir(&temp_dir)
         .assert()
         .success()
@@ -226,7 +226,7 @@ fn cli_access_server(storage: &str, addr: &str) {
 
     Command::cargo_bin("smolcli")
         .unwrap()
-        .args(&["rm", "key2", "--addr", addr])
+        .args(&["--addr", addr, "rm", "key2"])
         .current_dir(&temp_dir)
         .assert()
         .failure()
@@ -234,7 +234,7 @@ fn cli_access_server(storage: &str, addr: &str) {
 
     Command::cargo_bin("smolcli")
         .unwrap()
-        .args(&["set", "key2", "value3", "--addr", addr])
+        .args(&["--addr", addr, "set", "key2", "value3"])
         .current_dir(&temp_dir)
         .assert()
         .success()
@@ -242,7 +242,7 @@ fn cli_access_server(storage: &str, addr: &str) {
 
     Command::cargo_bin("smolcli")
         .unwrap()
-        .args(&["rm", "key1", "--addr", addr])
+        .args(&["--addr", addr, "rm", "key1"])
         .current_dir(&temp_dir)
         .assert()
         .success()
@@ -267,14 +267,14 @@ fn cli_access_server(storage: &str, addr: &str) {
 
     Command::cargo_bin("smolcli")
         .unwrap()
-        .args(&["get", "key2", "--addr", addr])
+        .args(&["--addr", addr, "get", "key2"])
         .current_dir(&temp_dir)
         .assert()
         .success()
         .stdout(contains("value3"));
     Command::cargo_bin("smolcli")
         .unwrap()
-        .args(&["get", "key1", "--addr", addr])
+        .args(&["--addr", addr, "get", "key1"])
         .current_dir(&temp_dir)
         .assert()
         .success()
