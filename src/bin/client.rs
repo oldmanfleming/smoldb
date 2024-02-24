@@ -1,6 +1,10 @@
-use std::net::SocketAddr;
+use std::{
+    io::Write,
+    net::{SocketAddr, TcpStream},
+};
 
 use clap::{Args, Parser, Subcommand};
+use thiserror::Error;
 
 const DEFAULT_ADDR: &str = "127.0.0.1:4001";
 
@@ -48,19 +52,30 @@ struct RemoveCommand {
     key: String,
 }
 
-fn main() {
+#[derive(Error, Debug)]
+enum ClientError {
+    #[error("IO error: {0}")]
+    Io(#[from] std::io::Error),
+}
+
+fn main() -> Result<(), ClientError> {
     let cli = Cli::parse();
 
-    let _addr = cli.addr;
+    let mut stream = TcpStream::connect(cli.addr)?;
 
     match cli.command {
         Command::Get(GetCommand { key }) => {
+            let message = format!("GET {}", key);
+            stream.write_all(message.as_bytes())?;
+            stream.flush()?;
+        }
+        Command::Set(SetCommand {
+            key: _key,
+            value: _value,
+        }) => {
             todo!();
         }
-        Command::Set(SetCommand { key, value }) => {
-            todo!();
-        }
-        Command::Remove(RemoveCommand { key }) => {
+        Command::Remove(RemoveCommand { key: _key }) => {
             todo!();
         }
         Command::Merge => {
@@ -70,4 +85,6 @@ fn main() {
             todo!();
         }
     }
+
+    Ok(())
 }

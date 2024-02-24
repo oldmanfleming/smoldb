@@ -1,8 +1,13 @@
-use std::{env::current_dir, net::SocketAddr};
+use std::{
+    env::current_dir,
+    io::{self, Read},
+    net::{SocketAddr, TcpListener, TcpStream},
+};
 
 use clap::{Parser, ValueEnum};
-use smoldb::{Bitcask, Storage, StorageResult};
-use tracing::{info, Level};
+use smoldb::{Bitcask, Storage, StorageError, StorageResult};
+use thiserror::Error;
+use tracing::{error, info, Level};
 use tracing_subscriber::FmtSubscriber;
 
 const DEFAULT_ADDR: &str = "127.0.0.1:4001";
@@ -24,16 +29,15 @@ enum StorageType {
     Memory,
 }
 
-impl std::fmt::Display for StorageType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.to_possible_value()
-            .expect("no values are skipped")
-            .get_name()
-            .fmt(f)
-    }
+#[derive(Error, Debug)]
+enum ServerError {
+    #[error("IO error: {0}")]
+    Io(#[from] io::Error),
+    #[error("Storage error: {0}")]
+    StorageError(#[from] StorageError),
 }
 
-fn main() -> StorageResult<()> {
+fn main() -> Result<(), ServerError> {
     init_tracing();
 
     let cli = Cli::parse();
@@ -41,18 +45,41 @@ fn main() -> StorageResult<()> {
     let storage = cli.storage.unwrap_or(StorageType::Bitcask);
 
     info!("smoldb {}", env!("CARGO_PKG_VERSION"));
-    info!("storage engine: {}", storage);
+    info!("storage engine: {:?}", storage);
     info!("listening on {}", addr);
 
     match storage {
-        StorageType::Bitcask => run_with_engine(Bitcask::open(current_dir()?)?, addr),
+        StorageType::Bitcask => run(Bitcask::open(current_dir()?)?, addr),
         StorageType::Sled => unimplemented!(),
         StorageType::Memory => unimplemented!(),
     }
 }
 
-fn run_with_engine<E: Storage>(mut engine: E, _addr: SocketAddr) -> StorageResult<()> {
-    println!("{}", engine.get(String::from("test2")).unwrap().unwrap());
+fn run<E: Storage>(mut engine: E, addr: SocketAddr) -> Result<(), ServerError> {
+    let listener = TcpListener::bind(addr)?;
+
+    for stream in listener.incoming() {
+        match stream {
+            Ok(stream) => {
+                if let Err(e) = serve(&mut engine, stream) {
+                    error!("Error serving connection: {}", e);
+                }
+            }
+            Err(err) => error!("Connection failed: {}", err),
+        }
+    }
+
+    Ok(())
+}
+
+fn serve<E: Storage>(engine: &mut E, mut stream: TcpStream) -> StorageResult<()> {
+    let mut buffer = [0; 1024];
+    stream.read(&mut buffer)?;
+
+    let request = String::from_utf8(buffer.to_vec())?;
+
+    info!("received request: {}", request);
+    info!("{}", engine.get(String::from("test2")).unwrap().unwrap());
 
     Ok(())
 }
