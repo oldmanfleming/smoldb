@@ -251,6 +251,9 @@ fn cli_access_server(storage: &str, addr: &str) {
     sender.send(()).unwrap();
     handle.join().unwrap();
 
+    // Wait for server to exit
+    thread::sleep(Duration::from_secs(1));
+
     // Reopen and check value
     let (sender, receiver) = mpsc::sync_channel(0);
     let mut server = Command::cargo_bin("smoldb").unwrap();
@@ -291,9 +294,4 @@ fn cli_access_server_bitcask_engine() {
 #[test]
 fn cli_access_server_sled_engine() {
     cli_access_server("sled", "127.0.0.1:4005");
-}
-
-#[test]
-fn cli_access_server_memory_engine() {
-    cli_access_server("memory", "127.0.0.1:4006");
 }

@@ -74,13 +74,13 @@ impl<S: Storage> Server<S> {
                 debug!("{}: get {}", peer_addr, key)
             }
             Request::Set { key, value } => {
-                let response = match self.storage.set(key.clone(), value) {
+                let response = match self.storage.set(key.clone(), value.clone()) {
                     Ok(()) => SetResponse::Ok(()),
                     Err(e) => SetResponse::Err(e.to_string()),
                 };
                 bincode::serialize_into(&mut writer, &response)?;
                 writer.flush()?;
-                debug!("{}: set {}", peer_addr, key)
+                debug!("{}: set {} {}", peer_addr, key, value)
             }
             Request::Remove { key } => {
                 let response = match self.storage.remove(key.clone()) {

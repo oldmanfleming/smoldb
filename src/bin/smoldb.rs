@@ -1,7 +1,7 @@
 use std::{env::current_dir, net::SocketAddr};
 
 use clap::{Parser, ValueEnum};
-use smoldb::{Bitcask, Server, ServerResult};
+use smoldb::{Bitcask, Server, ServerResult, Sled, Storage};
 use tracing::{info, Level};
 use tracing_subscriber::FmtSubscriber;
 
@@ -21,7 +21,6 @@ struct Cli {
 enum StorageType {
     Bitcask,
     Sled,
-    Memory,
 }
 
 fn main() -> ServerResult<()> {
@@ -29,18 +28,20 @@ fn main() -> ServerResult<()> {
 
     let cli = Cli::parse();
     let addr = cli.addr;
-    let storage = cli.storage.unwrap_or(StorageType::Bitcask);
+    let storage_type = cli.storage.unwrap_or(StorageType::Bitcask);
 
     info!("smoldb {}", env!("CARGO_PKG_VERSION"));
-    info!("storage type: {:?}", storage);
+    info!("storage type: {:?}", storage_type);
     info!("listening on {}", addr);
 
-    let mut server = match storage {
-        StorageType::Bitcask => Server::new(Bitcask::open(current_dir()?)?),
-        StorageType::Sled => unimplemented!(),
-        StorageType::Memory => unimplemented!(),
-    };
+    match storage_type {
+        StorageType::Bitcask => run(Bitcask::open(current_dir()?)?, addr),
+        StorageType::Sled => run(Sled::open(current_dir()?)?, addr),
+    }
+}
 
+fn run<T: Storage>(storage: T, addr: SocketAddr) -> ServerResult<()> {
+    let mut server = Server::new(storage);
     server.run(addr)
 }
 

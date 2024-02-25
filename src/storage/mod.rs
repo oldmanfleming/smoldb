@@ -1,9 +1,11 @@
 mod bitcask;
+mod sled;
 
 use std::string::FromUtf8Error;
 use thiserror::Error;
 
 pub use bitcask::Bitcask;
+pub use sled::Sled;
 
 /// The `Engine` trait for the various storage engines.
 pub trait Storage {
@@ -52,6 +54,10 @@ pub enum StorageError {
     /// Unexpected error.
     #[error("An unexpected error occurred: {0}")]
     Unexpected(String),
+
+    /// Internal Sled error.
+    #[error("An internal sled error occurred: {0}")]
+    Sled(#[from] ::sled::Error),
 }
 
 /// The `Result` type for `Storage`.

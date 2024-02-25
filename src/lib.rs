@@ -3,9 +3,9 @@
 
 mod client;
 mod common;
-mod storage;
 mod server;
+mod storage;
 
-pub use storage::{Bitcask, Storage, StorageError, StorageResult};
 pub use client::{Client, ClientError, ClientResult};
 pub use server::{Server, ServerError, ServerResult};
+pub use storage::{Bitcask, Sled, Storage, StorageError, StorageResult};

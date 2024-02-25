@@ -32,7 +32,7 @@ const LOG_SIZE_THRESHOLD: u64 = 1024 * 1024;
 /// Example:
 ///
 /// ```rust
-/// # use smoldb::{Bitcask, StorageError, Result};
+/// # use smoldb::{Bitcask, Storage, StorageError, StorageResult};
 /// let mut storage = Bitcask::open(std::env::current_dir().unwrap()).unwrap();
 /// storage.set("key".to_owned(), "value".to_owned()).unwrap();
 /// let val = storage.get("key".to_owned()).unwrap();
