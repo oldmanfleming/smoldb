@@ -65,38 +65,38 @@ impl<S: Storage> Server<S> {
         let request: Request = bincode::deserialize_from(reader)?;
         match request {
             Request::Get { key } => {
-                let response = match self.storage.get(key.clone()) {
+                debug!("{}: get {}", peer_addr, &key);
+                let response = match self.storage.get(key) {
                     Ok(value) => GetResponse::Ok(value),
                     Err(e) => GetResponse::Err(e.to_string()),
                 };
                 bincode::serialize_into(&mut writer, &response)?;
                 writer.flush()?;
-                debug!("{}: get {}", peer_addr, key)
             }
             Request::Set { key, value } => {
-                let response = match self.storage.set(key.clone(), value.clone()) {
+                debug!("{}: set {} {}", peer_addr, &key, &value);
+                let response = match self.storage.set(key, value) {
                     Ok(()) => SetResponse::Ok(()),
                     Err(e) => SetResponse::Err(e.to_string()),
                 };
                 bincode::serialize_into(&mut writer, &response)?;
                 writer.flush()?;
-                debug!("{}: set {} {}", peer_addr, key, value)
             }
             Request::Remove { key } => {
-                let response = match self.storage.remove(key.clone()) {
+                debug!("{}: remove {}", peer_addr, &key);
+                let response = match self.storage.remove(key) {
                     Ok(()) => RemoveResponse::Ok(()),
                     Err(e) => RemoveResponse::Err(e.to_string()),
                 };
                 bincode::serialize_into(&mut writer, &response)?;
                 writer.flush()?;
-                debug!("{}: remove {}", peer_addr, key)
             }
             Request::List => {
+                debug!("{}: list", peer_addr);
                 let keys = self.storage.list_keys();
                 let response = ListResponse::Ok(keys);
                 bincode::serialize_into(&mut writer, &response)?;
                 writer.flush()?;
-                debug!("{}: list", peer_addr)
             }
         }
 
