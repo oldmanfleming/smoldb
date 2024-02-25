@@ -32,7 +32,7 @@ fn main() -> ServerResult<()> {
     let storage = cli.storage.unwrap_or(StorageType::Bitcask);
 
     info!("smoldb {}", env!("CARGO_PKG_VERSION"));
-    info!("storage engine: {:?}", storage);
+    info!("storage type: {:?}", storage);
     info!("listening on {}", addr);
 
     let mut server = match storage {

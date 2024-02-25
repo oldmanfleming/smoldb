@@ -17,9 +17,9 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Command {
-    #[command(name = "get", about = "Get the string value of a given string key")]
+    #[command(name = "get", about = "Get the value of a given key")]
     Get(GetCommand),
-    #[command(name = "set", about = "Set the value of a string key to a string")]
+    #[command(name = "set", about = "Set the value of a key")]
     Set(SetCommand),
     #[command(name = "rm", about = "Remove a given key")]
     Remove(RemoveCommand),
@@ -59,10 +59,7 @@ fn main() -> ClientResult<()> {
                 println!("Key not found");
             }
         }
-        Command::Set(SetCommand {
-            key,
-            value,
-        }) => {
+        Command::Set(SetCommand { key, value }) => {
             client.set(key, value)?;
         }
         Command::Remove(RemoveCommand { key }) => {
