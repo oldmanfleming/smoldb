@@ -19,7 +19,13 @@ tracing = "0.1.40"
 tracing-subscriber = "0.3.18"
 
 [dev-dependencies]
+criterion = "0.5.1"
+rand = { version = "0.8.5", features = ["small_rng"] }
 assert_cmd = "2.0.13"
 predicates = "3.1.0"
 tempfile = "3.10.0"
 walkdir = "2.4.0"
+
+[[bench]]
+name = "storage_bench"
+harness = false
