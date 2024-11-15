@@ -5,6 +5,7 @@ use sled::{Db, Tree};
 use crate::{Storage, StorageError, StorageResult};
 
 /// Wrapper of `sled::Db`
+#[derive(Clone)]
 pub struct Sled(Db);
 
 impl Sled {
@@ -16,14 +17,18 @@ impl Sled {
 }
 
 impl Storage for Sled {
-    fn set(&mut self, key: String, value: String) -> StorageResult<()> {
+    fn compact(&self) -> StorageResult<()> {
+        Ok(())
+    }
+
+    fn set(&self, key: String, value: String) -> StorageResult<()> {
         let tree: &Tree = &self.0;
         tree.insert(key, value.into_bytes()).map(|_| ())?;
         tree.flush()?;
         Ok(())
     }
 
-    fn get(&mut self, key: String) -> StorageResult<Option<String>> {
+    fn get(&self, key: String) -> StorageResult<Option<String>> {
         let tree: &Tree = &self.0;
         Ok(tree
             .get(key)?
@@ -32,7 +37,7 @@ impl Storage for Sled {
             .transpose()?)
     }
 
-    fn remove(&mut self, key: String) -> StorageResult<()> {
+    fn remove(&self, key: String) -> StorageResult<()> {
         let tree: &Tree = &self.0;
         tree.remove(key)?.ok_or(StorageError::KeyNotFound)?;
         tree.flush()?;

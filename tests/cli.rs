@@ -105,14 +105,14 @@ fn client_cli_invalid_rm() {
 
     Command::cargo_bin("smolcli")
         .unwrap()
-        .args(&["--addr", "invalid-addr", "rm", "key"])
+        .args(&["rm", "key", "--addr", "invalid-addr"])
         .current_dir(&temp_dir)
         .assert()
         .failure();
 
     Command::cargo_bin("smolcli")
         .unwrap()
-        .args(&["--unknown-flag", "rm", "key"])
+        .args(&["rm", "key", "--unknown-flag"])
         .current_dir(&temp_dir)
         .assert()
         .failure();
@@ -129,6 +129,7 @@ fn client_cli_invalid_subcommand() {
         .failure();
 }
 
+// `smolcli -V` should print the version
 #[test]
 fn client_cli_version() {
     let temp_dir = TempDir::new().unwrap();
@@ -139,6 +140,7 @@ fn client_cli_version() {
         .stdout(contains(env!("CARGO_PKG_VERSION")));
 }
 
+// `smoldb -V` should print the version
 #[test]
 fn server_cli_version() {
     let temp_dir = TempDir::new().unwrap();
@@ -287,11 +289,11 @@ fn cli_access_server(storage: &str, addr: &str) {
 }
 
 #[test]
-fn cli_access_server_bitcask_engine() {
-    cli_access_server("bitcask", "127.0.0.1:4004");
+fn cli_access_server_bitcask_storage() {
+    cli_access_server("bitcask", "127.0.0.1:4002");
 }
 
 #[test]
-fn cli_access_server_sled_engine() {
-    cli_access_server("sled", "127.0.0.1:4005");
+fn cli_access_server_sled_storage() {
+    cli_access_server("sled", "127.0.0.1:4003");
 }
