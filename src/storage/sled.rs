@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::{path::PathBuf, sync::Arc};
 
 use sled::{Db, Tree};
 
@@ -6,13 +6,13 @@ use crate::{Storage, StorageError, StorageResult};
 
 /// Wrapper of `sled::Db`
 #[derive(Clone)]
-pub struct Sled(Db);
+pub struct Sled(Arc<Db>);
 
 impl Sled {
     /// Creates a `Sled` storage engine using `sled::Db`.
     pub fn open(path: impl Into<PathBuf>) -> StorageResult<Self> {
         let db = ::sled::open(path.into())?;
-        Ok(Sled(db))
+        Ok(Sled(Arc::new(db)))
     }
 }
 
