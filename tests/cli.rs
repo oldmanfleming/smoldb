@@ -171,12 +171,12 @@ fn cli_log_configuration() {
     assert!(content.contains("127.0.0.1:4001"));
 }
 
-fn cli_access_server(storage: &str, addr: &str) {
+fn cli_access_server(storage: &str, thread_pool: &str, addr: &str) {
     let (sender, receiver) = mpsc::sync_channel(0);
     let temp_dir = TempDir::new().unwrap();
     let mut server = Command::cargo_bin("smoldb").unwrap();
     let mut child = server
-        .args(&["--storage", storage, "--addr", addr])
+        .args(&["--storage", storage, "--pool", thread_pool, "--addr", addr])
         .current_dir(&temp_dir)
         .spawn()
         .unwrap();
@@ -260,7 +260,7 @@ fn cli_access_server(storage: &str, addr: &str) {
     let (sender, receiver) = mpsc::sync_channel(0);
     let mut server = Command::cargo_bin("smoldb").unwrap();
     let mut child = server
-        .args(&["--storage", storage, "--addr", addr])
+        .args(&["--storage", storage, "--pool", thread_pool, "--addr", addr])
         .current_dir(&temp_dir)
         .spawn()
         .unwrap();
@@ -289,11 +289,31 @@ fn cli_access_server(storage: &str, addr: &str) {
 }
 
 #[test]
-fn cli_access_server_bitcask_storage() {
-    cli_access_server("bitcask", "127.0.0.1:4002");
+fn cli_access_server_bitcask_naive() {
+    cli_access_server("bitcask", "naive", "127.0.0.1:4002");
 }
 
 #[test]
-fn cli_access_server_sled_storage() {
-    cli_access_server("sled", "127.0.0.1:4003");
+fn cli_access_server_sled_naive() {
+    cli_access_server("sled", "naive", "127.0.0.1:4003");
+}
+
+#[test]
+fn cli_access_server_bitcask_rayon() {
+    cli_access_server("bitcask", "rayon", "127.0.0.1:4004");
+}
+
+#[test]
+fn cli_access_server_sled_rayon() {
+    cli_access_server("sled", "rayon", "127.0.0.1:4005");
+}
+
+#[test]
+fn cli_access_server_bitcask_shared_queue() {
+    cli_access_server("bitcask", "shared-queue", "127.0.0.1:4006");
+}
+
+#[test]
+fn cli_access_server_sled_shared_queue() {
+    cli_access_server("sled", "shared-queue", "127.0.0.1:4007");
 }
