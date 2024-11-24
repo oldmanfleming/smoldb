@@ -1,135 +1,199 @@
+// These tests are a bit clunky because bench_with_input does not support async functions.
+
 use assert_cmd::prelude::*;
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
-use rayon::prelude::*;
 use smoldb::Client;
-use std::{
-    process::Command,
-    sync::mpsc::{self},
-    thread,
-    time::Duration,
-};
+use std::net::SocketAddr;
+use std::path::Path;
+use std::process::Command;
+use std::sync::mpsc::{self, SyncSender};
+use std::thread::JoinHandle;
+use std::{thread, time::Duration};
 use tempfile::TempDir;
+use tokio::runtime::Runtime;
+use tokio::task::{self};
 
 const ADDR: &str = "127.0.0.1:4011";
 const NUM_OPS: u64 = 1000;
 
-// TODO: It seems that due to the limitations of the client being single-threaded and opening a new
-// connection for each operation, we reach some OS limitations when trying to run this with a high number of ops.
-// This should be fixed when we implement a connection pool in the client.
-
 fn get_bench(c: &mut Criterion) {
+    let rt = Runtime::new().unwrap();
+
     let storage_types = &["bitcask", "sled"];
-    let threads = &["1", "2", "4", "8", "16", "32"];
-    let thread_pools = &["naive", "rayon", "shared-queue"];
 
     let mut group = c.benchmark_group("get_bench");
 
     for &storage in storage_types {
-        for &pool in thread_pools {
-            for &t in threads {
-                let params = (storage, pool, t);
-                group.bench_with_input(
-                    BenchmarkId::new("get_bench", format!("{}_{}_{}", storage, pool, t)),
-                    &params,
-                    |b, &(storage, pool, t)| {
-                        let temp_dir = TempDir::new().unwrap();
-                        let (sender, handle) = start_server(&temp_dir, storage, pool, t, ADDR);
-                        let ops: Vec<u64> = (0..NUM_OPS).collect();
+        group.bench_with_input(
+            BenchmarkId::new("get_bench", format!("{:?}", storage)),
+            &storage,
+            |b, &storage| {
+                // Setup
+                let dir = TempDir::new().unwrap();
+                let addr: SocketAddr = ADDR.parse().unwrap();
+                let ops: Vec<u64> = (0..NUM_OPS).collect();
+                let (tx, handle) = start_server(dir.path(), storage, addr);
+                let client = rt.block_on(async {
+                    let client = Client::connect(addr, 10);
+                    set_keys(client.clone(), ops.clone()).await;
+                    client
+                });
 
-                        ops.par_iter().for_each(|i| {
-                            let mut client = Client::connect(&ADDR.parse().unwrap()).unwrap();
-                            client
-                                .set(format!("key{}", i), "value".to_string())
-                                .unwrap();
-                        });
+                // Benchmark
+                b.to_async(&rt)
+                    .iter(|| get_keys(client.clone(), ops.clone()));
 
-                        b.iter(|| {
-                            ops.par_iter().for_each(|i| {
-                                let mut client = Client::connect(&ADDR.parse().unwrap()).unwrap();
-                                client.get(format!("key{}", i)).unwrap();
-                            });
-                        });
-
-                        sender.send(()).unwrap();
-                        handle.join().unwrap();
-                    },
-                );
-            }
-        }
+                // Teardown
+                tx.send(()).unwrap();
+                handle.join().unwrap();
+            },
+        );
     }
     group.finish();
 }
 
 fn set_bench(c: &mut Criterion) {
+    let rt = Runtime::new().unwrap();
+
     let storage_types = &["bitcask", "sled"];
-    let threads = &["1", "2", "4", "8", "16", "32"];
-    let thread_pools = &["naive", "rayon", "shared-queue"];
 
     let mut group = c.benchmark_group("set_bench");
 
     for &storage in storage_types {
-        for &pool in thread_pools {
-            for &t in threads {
-                let params = (storage, pool, t);
-                group.bench_with_input(
-                    BenchmarkId::new("set_bench", format!("{}_{}_{}", storage, pool, t)),
-                    &params,
-                    |b, &(storage, pool, t)| {
-                        let temp_dir = TempDir::new().unwrap();
-                        let (sender, handle) =
-                            start_server(&temp_dir, storage, pool, &t.to_string(), ADDR);
-                        let ops: Vec<u64> = (0..NUM_OPS).collect();
+        group.bench_with_input(
+            BenchmarkId::new("set_bench", format!("{:?}", storage)),
+            &storage,
+            |b, &storage| {
+                // Setup
+                let dir = TempDir::new().unwrap();
+                let addr: SocketAddr = ADDR.parse().unwrap();
+                let ops: Vec<u64> = (0..NUM_OPS).collect();
+                let (tx, handle) = start_server(dir.path(), storage, addr);
+                let client = Client::connect(addr, 10);
 
-                        b.iter(|| {
-                            ops.par_iter().for_each(|i| {
-                                let mut client = Client::connect(&ADDR.parse().unwrap()).unwrap();
-                                client
-                                    .set(format!("key{}", i), "value".to_string())
-                                    .unwrap();
-                            });
-                        });
+                // Benchmark
+                b.to_async(&rt)
+                    .iter(|| set_keys(client.clone(), ops.clone()));
 
-                        sender.send(()).unwrap();
-                        handle.join().unwrap();
-                    },
-                );
-            }
-        }
+                // Teardown
+                tx.send(()).unwrap();
+                handle.join().unwrap();
+            },
+        );
     }
     group.finish();
 }
 
+fn get_and_set_bench(c: &mut Criterion) {
+    let rt = Runtime::new().unwrap();
+
+    let storage_types = &["bitcask", "sled"];
+
+    let mut group = c.benchmark_group("get_and_set_bench");
+
+    for &storage in storage_types {
+        group.bench_with_input(
+            BenchmarkId::new("get_and_set_bench", format!("{:?}", storage)),
+            &storage,
+            |b, &storage| {
+                // Setup
+                let dir = TempDir::new().unwrap();
+                let addr: SocketAddr = ADDR.parse().unwrap();
+                let ops: Vec<u64> = (0..NUM_OPS).collect();
+                let (tx, handle) = start_server(dir.path(), storage, addr);
+                let client = Client::connect(addr, 10);
+
+                // Benchmark
+                b.to_async(&rt)
+                    .iter(|| get_and_set_keys(client.clone(), ops.clone()));
+
+                // Teardown
+                tx.send(()).unwrap();
+                handle.join().unwrap();
+            },
+        );
+    }
+    group.finish();
+}
+
+async fn set_keys(client: smoldb::Client, keys: Vec<u64>) {
+    let tasks: Vec<_> = keys
+        .into_iter()
+        .map(|i| {
+            let client_clone = client.clone();
+            task::spawn(async move {
+                client_clone
+                    .set(format!("key{}", i), "value".to_string())
+                    .await
+                    .unwrap();
+            })
+        })
+        .collect();
+    for task in tasks {
+        task.await.unwrap();
+    }
+}
+
+async fn get_keys(client: smoldb::Client, keys: Vec<u64>) {
+    let tasks: Vec<_> = keys
+        .into_iter()
+        .map(|i| {
+            let client_clone = client.clone();
+            task::spawn(async move {
+                let val = client_clone.get(format!("key{}", i)).await.unwrap();
+                assert_eq!(val, Some("value".to_string()));
+            })
+        })
+        .collect();
+    for task in tasks {
+        task.await.unwrap();
+    }
+}
+
+async fn get_and_set_keys(client: smoldb::Client, keys: Vec<u64>) {
+    let tasks: Vec<_> = keys
+        .into_iter()
+        .map(|i| {
+            let client_clone = client.clone();
+            task::spawn(async move {
+                client_clone
+                    .set(format!("key{}", i), "value".to_string())
+                    .await
+                    .unwrap();
+                let val = client_clone.get(format!("key{}", i)).await.unwrap();
+                assert_eq!(val, Some("value".to_string()));
+            })
+        })
+        .collect();
+    for task in tasks {
+        task.await.unwrap();
+    }
+}
+
 fn start_server(
-    temp_dir: &TempDir,
-    storage: &str,
-    thread_pool: &str,
-    pool_size: &str,
-    addr: &str,
-) -> (mpsc::SyncSender<()>, thread::JoinHandle<()>) {
-    let (sender, receiver) = mpsc::sync_channel(0);
+    dir: &Path,
+    storage_type: &str,
+    addr: SocketAddr,
+) -> (SyncSender<()>, JoinHandle<()>) {
+    let (tx, rx) = mpsc::sync_channel(0);
     let mut server = Command::cargo_bin("smoldb").unwrap();
     let mut child = server
         .args(&[
             "--storage",
-            storage,
-            "--pool",
-            thread_pool,
-            "--pool-size",
-            pool_size,
+            storage_type,
             "--addr",
-            addr,
+            addr.to_string().as_str(),
         ])
-        .current_dir(&temp_dir)
+        .current_dir(dir)
         .spawn()
         .unwrap();
     let handle = thread::spawn(move || {
-        let _ = receiver.recv(); // wait for main thread to finish
+        let _ = rx.recv(); // wait for main thread to finish
         child.kill().expect("server exited before killed");
     });
     thread::sleep(Duration::from_secs(1));
-
-    (sender, handle)
+    (tx, handle)
 }
 
-criterion_group!(benches, get_bench, set_bench);
+criterion_group!(benches, get_bench, set_bench, get_and_set_bench);
 criterion_main!(benches);

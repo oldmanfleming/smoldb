@@ -29,29 +29,6 @@ const LOG_SIZE_THRESHOLD: u64 = 1024 * 1024;
 /// The implementation follows the [Bitcask Paper](https://riak.com/assets/bitcask-intro.pdf).
 ///
 /// `Bitcask` is a thread-safe implementation of the `Storage` trait and can be cloned and shared between threads.
-///
-/// Example:
-///
-/// ```rust
-/// # use smoldb::{Bitcask, Storage, StorageError, StorageResult};
-/// let mut storage = Bitcask::open(std::env::current_dir().unwrap()).unwrap();
-/// storage.set("key".to_owned(), "value".to_owned()).unwrap();
-/// let val = storage.get("key".to_owned()).unwrap();
-/// assert_eq!(val, Some("value".to_owned()));
-/// ```
-///
-/// Async Example:
-///
-/// ```rust
-/// # use smoldb::{Bitcask, Storage, StorageError, StorageResult};
-/// let storage = Bitcask::open(std::env::current_dir().unwrap()).unwrap();
-/// let storage_clone = storage.clone();
-/// std::thread::spawn(move || {
-///    storage_clone.set("key".to_owned(), "value".to_owned()).unwrap();
-/// });
-/// std::thread::sleep(std::time::Duration::from_secs(1));
-/// let val = storage.get("key".to_owned()).unwrap();
-/// assert_eq!(val, Some("value".to_owned()));
 #[derive(Clone)]
 pub struct Bitcask {
     key_dir: Arc<SkipMap<String, Entry>>,
