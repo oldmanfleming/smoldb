@@ -2,7 +2,7 @@ use std::{path::PathBuf, sync::Arc};
 
 use sled::{Db, Tree};
 
-use crate::{Storage, StorageError, StorageResult};
+use super::{Storage, StorageError, StorageResult};
 
 /// Wrapper of `sled::Db`
 #[derive(Clone)]

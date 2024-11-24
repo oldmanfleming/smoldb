@@ -1,10 +1,9 @@
 use std::{env::current_dir, net::SocketAddr};
+use tokio::signal;
+use tokio::sync::oneshot;
 
 use clap::{Parser, ValueEnum};
-use smoldb::{
-    Bitcask, NaiveThreadPool, RayonThreadPool, Server, ServerResult, SharedQueueThreadPool, Sled,
-    Storage, ThreadPool,
-};
+use smoldb::{run, ServerResult, StorageType};
 use tracing::{info, Level};
 use tracing_subscriber::FmtSubscriber;
 
@@ -14,91 +13,49 @@ const DEFAULT_ADDR: &str = "127.0.0.1:4001";
 #[command(author, version, about, long_about = None)]
 struct Cli {
     #[arg(short, long)]
-    storage: Option<StorageType>,
-
-    #[arg(short, long)]
-    pool: Option<ThreadPoolType>,
-
-    #[arg(long)]
-    pool_size: Option<u32>,
+    storage: Option<CliStorageType>,
 
     #[arg(short, long, default_value = DEFAULT_ADDR)]
     addr: SocketAddr,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, ValueEnum)]
-enum StorageType {
+enum CliStorageType {
     Bitcask,
     Sled,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, ValueEnum)]
-enum ThreadPoolType {
-    Naive,
-    Rayon,
-    SharedQueue,
-}
-
-fn main() -> ServerResult<()> {
+#[tokio::main]
+async fn main() -> ServerResult<()> {
     init_tracing();
 
     let cli = Cli::parse();
     let addr = cli.addr;
-    let storage_type = cli.storage.unwrap_or(StorageType::Bitcask);
-    let thread_pool_type = cli.pool.unwrap_or(ThreadPoolType::Naive);
-    let thread_pool_size = cli.pool_size.unwrap_or(32);
+    let storage_type = cli.storage.unwrap_or(CliStorageType::Bitcask);
     let current_dir = current_dir()?;
 
     info!("smoldb {}", env!("CARGO_PKG_VERSION"));
     info!("storage type: {:?}", storage_type);
-    info!(
-        "thread pool type: {:?} with size: {}",
-        thread_pool_type, thread_pool_size
-    );
     info!("working directory: {:?}", current_dir);
+
+    let (stop_tx, stop_rx) = oneshot::channel();
+
+    tokio::spawn(async move {
+        signal::ctrl_c().await.expect("failed to listen for event");
+        info!("shutting down server");
+        stop_tx.send(()).expect("failed to send stop signal");
+    });
+
     info!("listening on {}", addr);
 
-    match (storage_type, thread_pool_type) {
-        (StorageType::Bitcask, ThreadPoolType::Naive) => run(
-            Bitcask::open(current_dir)?,
-            NaiveThreadPool::new(thread_pool_size)?,
-            addr,
-        ),
-        (StorageType::Sled, ThreadPoolType::Naive) => run(
-            Sled::open(current_dir)?,
-            NaiveThreadPool::new(thread_pool_size)?,
-            addr,
-        ),
-        (StorageType::Bitcask, ThreadPoolType::Rayon) => run(
-            Bitcask::open(current_dir)?,
-            RayonThreadPool::new(thread_pool_size)?,
-            addr,
-        ),
-        (StorageType::Sled, ThreadPoolType::Rayon) => run(
-            Sled::open(current_dir)?,
-            RayonThreadPool::new(thread_pool_size)?,
-            addr,
-        ),
-        (StorageType::Bitcask, ThreadPoolType::SharedQueue) => run(
-            Bitcask::open(current_dir)?,
-            SharedQueueThreadPool::new(thread_pool_size)?,
-            addr,
-        ),
-        (StorageType::Sled, ThreadPoolType::SharedQueue) => run(
-            Sled::open(current_dir)?,
-            SharedQueueThreadPool::new(thread_pool_size)?,
-            addr,
-        ),
-    }
-}
+    match storage_type {
+        CliStorageType::Bitcask => run(addr, current_dir, StorageType::Bitcask, stop_rx).await?,
+        CliStorageType::Sled => run(addr, current_dir, StorageType::Sled, stop_rx).await?,
+    };
 
-fn run<S: Storage, T: ThreadPool>(
-    storage: S,
-    thread_pool: T,
-    addr: SocketAddr,
-) -> ServerResult<()> {
-    let mut server = Server::new(storage, thread_pool);
-    server.run(addr)
+    info!("server stopped");
+
+    Ok(())
 }
 
 #[cfg(debug_assertions)]

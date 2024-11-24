@@ -13,6 +13,9 @@ struct Cli {
 
     #[arg(short, long, value_enum, default_value = DEFAULT_ADDR)]
     addr: SocketAddr,
+
+    #[arg(short, long, default_value = "1")]
+    pool_size: usize,
 }
 
 #[derive(Subcommand, Debug)]
@@ -47,26 +50,28 @@ struct RemoveCommand {
     key: String,
 }
 
-fn main() -> ClientResult<()> {
+#[tokio::main]
+async fn main() -> ClientResult<()> {
     let cli = Cli::parse();
 
-    let mut client = Client::connect(&cli.addr)?;
+    let client = Client::connect(cli.addr, cli.pool_size);
+
     match cli.command {
         Command::Get(GetCommand { key }) => {
-            if let Some(value) = client.get(key)? {
+            if let Some(value) = client.get(key.clone()).await? {
                 println!("{}", value);
             } else {
                 println!("Key not found");
             }
         }
         Command::Set(SetCommand { key, value }) => {
-            client.set(key, value)?;
+            client.set(key, value).await?;
         }
         Command::Remove(RemoveCommand { key }) => {
-            client.remove(key)?;
+            client.remove(key).await?;
         }
         Command::List => {
-            let keys = client.list()?;
+            let keys = client.list().await?;
             for key in keys {
                 println!("{}", key);
             }
